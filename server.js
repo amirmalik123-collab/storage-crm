@@ -130,6 +130,14 @@ function deriveStatus(start_date, end_date) {
 
 function enrichContainer(c) {
   const today = new Date(); today.setHours(0,0,0,0);
+
+  c.monthly_rate        = parseFloat(c.monthly_rate) || 0;
+  c.joining_email_sent  = !!c.joining_email_sent;
+  c.id_check            = !!c.id_check;
+  c.contract_signed     = !!c.contract_signed;
+  c.insurance           = !!c.insurance;
+
+  c.status = deriveStatus(c.start_date, c.end_date);
   c.status = deriveStatus(c.start_date, c.end_date);
   c.days_occupied = c.start_date
     ? Math.floor(((c.end_date ? new Date(c.end_date) : today) - new Date(c.start_date)) / 86400000)
