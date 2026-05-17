@@ -61,6 +61,31 @@ async function initDb() {
       created_at          TIMESTAMPTZ DEFAULT NOW(),
       updated_at          TIMESTAMPTZ DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS rental_history (
+      id                  SERIAL PRIMARY KEY,
+      container_number    TEXT NOT NULL,
+      container_size      TEXT,
+      location            TEXT,
+      order_date          DATE,
+      start_date          DATE,
+      end_date            DATE,
+      customer_name       TEXT DEFAULT '',
+      joining_email_sent  BOOLEAN DEFAULT FALSE,
+      id_check            BOOLEAN DEFAULT FALSE,
+      phone               TEXT DEFAULT '',
+      email               TEXT DEFAULT '',
+      address1            TEXT DEFAULT '',
+      address2            TEXT DEFAULT '',
+      postcode            TEXT DEFAULT '',
+      contract_signed     BOOLEAN DEFAULT FALSE,
+      insurance           BOOLEAN DEFAULT FALSE,
+      monthly_rate        NUMERIC(10,2) DEFAULT 0,
+      payment_status      TEXT DEFAULT 'Pending',
+      notes               TEXT DEFAULT '',
+      archived_at         TIMESTAMPTZ DEFAULT NOW(),
+      archived_by         TEXT DEFAULT ''
+    );
   `);
 
   // Seed admin user if no users exist
@@ -131,13 +156,13 @@ function deriveStatus(start_date, end_date) {
 function enrichContainer(c) {
   const today = new Date(); today.setHours(0,0,0,0);
 
+  // PostgreSQL returns NUMERIC as strings and BOOLEAN as booleans — normalise everything
   c.monthly_rate        = parseFloat(c.monthly_rate) || 0;
   c.joining_email_sent  = !!c.joining_email_sent;
   c.id_check            = !!c.id_check;
   c.contract_signed     = !!c.contract_signed;
   c.insurance           = !!c.insurance;
 
-  c.status = deriveStatus(c.start_date, c.end_date);
   c.status = deriveStatus(c.start_date, c.end_date);
   c.days_occupied = c.start_date
     ? Math.floor(((c.end_date ? new Date(c.end_date) : today) - new Date(c.start_date)) / 86400000)
@@ -329,6 +354,79 @@ app.delete('/api/users/:id', authRequired, async (req, res) => {
   if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: 'Cannot delete your own account' });
   try {
     await db.query('DELETE FROM users WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// ── Rental History ────────────────────────────────────────────────────────────
+app.get('/api/history', authRequired, async (req, res) => {
+  try {
+    const { search, container_number } = req.query;
+    let sql = 'SELECT * FROM rental_history WHERE 1=1';
+    const params = [];
+    if (search) {
+      params.push(`%${search}%`);
+      sql += ` AND (customer_name ILIKE $${params.length} OR container_number ILIKE $${params.length} OR email ILIKE $${params.length} OR notes ILIKE $${params.length})`;
+    }
+    if (container_number) { params.push(container_number); sql += ` AND container_number=$${params.length}`; }
+    sql += ' ORDER BY archived_at DESC';
+    const { rows } = await db.query(sql, params);
+    res.json(rows.map(r => ({
+      ...r,
+      monthly_rate: parseFloat(r.monthly_rate) || 0,
+      joining_email_sent: !!r.joining_email_sent,
+      id_check: !!r.id_check,
+      contract_signed: !!r.contract_signed,
+      insurance: !!r.insurance,
+    })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Archive a container's current tenant and clear it for the next customer
+app.post('/api/containers/:id/archive', authRequired, async (req, res) => {
+  try {
+    const { rows } = await db.query('SELECT * FROM containers WHERE id=$1', [req.params.id]);
+    const c = rows[0];
+    if (!c) return res.status(404).json({ error: 'Container not found' });
+    if (!c.customer_name && !c.start_date)
+      return res.status(400).json({ error: 'No tenant details to archive — container is already empty' });
+
+    // Copy current tenant details to rental_history
+    await db.query(
+      `INSERT INTO rental_history
+        (container_number,container_size,location,order_date,start_date,end_date,
+         customer_name,joining_email_sent,id_check,phone,email,address1,address2,
+         postcode,contract_signed,insurance,monthly_rate,payment_status,notes,archived_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+      [c.container_number, c.container_size, c.location,
+       c.order_date, c.start_date, c.end_date,
+       c.customer_name, c.joining_email_sent, c.id_check,
+       c.phone, c.email, c.address1, c.address2, c.postcode,
+       c.contract_signed, c.insurance, c.monthly_rate, c.payment_status, c.notes,
+       req.user.username]
+    );
+
+    // Clear tenant fields, keep container identity
+    const { rows: updated } = await db.query(
+      `UPDATE containers SET
+        order_date=NULL, start_date=NULL, end_date=NULL,
+        customer_name='', joining_email_sent=FALSE, id_check=FALSE,
+        phone='', email='', address1='', address2='', postcode='',
+        contract_signed=FALSE, insurance=FALSE,
+        monthly_rate=0, payment_status='Pending', notes='',
+        updated_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [req.params.id]
+    );
+    res.json({ container: enrichContainer(updated[0]), message: 'Tenant archived and container cleared' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/history/:id', authRequired, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  try {
+    await db.query('DELETE FROM rental_history WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

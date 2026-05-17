@@ -240,6 +240,8 @@ const Icon=({name,size=16,style={}})=>{
     box:`<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>`,
     users:`<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
     currency:`<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>`,
+    archive:`<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>`,
+    external:`<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>`,
   };
   return React.createElement('svg',{xmlns:'http://www.w3.org/2000/svg',width:size,height:size,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round',style,dangerouslySetInnerHTML:{__html:icons[name]||''}});
 };
@@ -400,6 +402,45 @@ function DashboardPage(){
 }
 
 // ── Containers page ───────────────────────────────────────────────────────────
+// ── Archive confirm modal ─────────────────────────────────────────────────────
+function ArchiveModal({container,onConfirm,onClose}){
+  const[loading,setLoading]=useState(false);
+  const go=async()=>{setLoading(true);await onConfirm();setLoading(false);};
+  return React.createElement('div',{className:'overlay',onClick:e=>{if(e.target===e.currentTarget)onClose()}},
+    React.createElement('div',{className:'modal',style:{maxWidth:460}},
+      React.createElement('div',{className:'modal-header'},
+        React.createElement('span',{className:'modal-title'},'Archive Tenant & Clear Container'),
+        React.createElement('button',{className:'modal-close',onClick:onClose},React.createElement(Icon,{name:'close',size:18}))
+      ),
+      React.createElement('div',{className:'modal-body'},
+        React.createElement('div',{className:'alert alert-warn',style:{marginBottom:16}},
+          React.createElement(Icon,{name:'warn',size:15}),
+          React.createElement('div',null,
+            React.createElement('strong',null,'This will permanently clear the container.'),' The tenant's details will be saved to Rental History and the container will be reset, ready for a new customer.'
+          )
+        ),
+        React.createElement('div',{style:{background:'var(--surface2)',borderRadius:'var(--radius)',padding:'14px 16px',fontSize:13}},
+          React.createElement('div',{style:{fontWeight:600,color:'var(--text)',marginBottom:6}},container.container_number+' — '+container.container_size),
+          React.createElement('div',{style:{color:'var(--text2)'}},container.customer_name||'(no name)'),
+          container.start_date&&React.createElement('div',{style:{color:'var(--text3)',fontSize:12,marginTop:4}},
+            'From '+new Date(container.start_date).toLocaleDateString('en-GB')+
+            (container.end_date?' to '+new Date(container.end_date).toLocaleDateString('en-GB'):' (rolling)')
+          )
+        )
+      ),
+      React.createElement('div',{className:'modal-footer'},
+        React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),
+        React.createElement('button',{
+          className:'btn',
+          style:{background:'var(--amber-dim)',borderColor:'var(--amber)',color:'var(--amber)'},
+          onClick:go,disabled:loading
+        },loading?React.createElement('span',{className:'spinner'}):React.createElement(Icon,{name:'archive',size:14}),' Archive & Clear')
+      )
+    )
+  );
+}
+
+
 function ContainersPage(){
   const{showToast}=useApp();
   const[rows,setRows]=useState([]);
@@ -489,6 +530,12 @@ function ContainersPage(){
               React.createElement('td',null,
                 React.createElement('div',{style:{display:'flex',gap:4}},
                   React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:e=>{e.stopPropagation();setModal({edit:c})}},React.createElement(Icon,{name:'edit',size:13})),
+                  (c.customer_name||c.start_date)&&React.createElement('button',{
+                    className:'btn btn-sm',
+                    style:{background:'var(--amber-dim)',borderColor:'var(--amber-dim)',color:'var(--amber)'},
+                    title:'Archive tenant & clear container',
+                    onClick:e=>{e.stopPropagation();setModal({archive:c})}
+                  },React.createElement(Icon,{name:'archive',size:13})),
                   React.createElement('button',{className:'btn btn-danger btn-sm',onClick:e=>{e.stopPropagation();setModal({del:c})}},React.createElement(Icon,{name:'trash',size:13}))
                 )
               )
@@ -499,11 +546,152 @@ function ContainersPage(){
     ),
     modal==='add'&&React.createElement(ContainerModal,{onSave:handleSave,onClose:()=>setModal(null)}),
     modal&&modal.edit&&React.createElement(ContainerModal,{initial:modal.edit,onSave:handleSave,onClose:()=>setModal(null)}),
-    modal&&modal.del&&React.createElement(DeleteModal,{container:modal.del,onConfirm:handleDelete,onClose:()=>setModal(null)})
+    modal&&modal.del&&React.createElement(DeleteModal,{container:modal.del,onConfirm:handleDelete,onClose:()=>setModal(null)}),
+    modal&&modal.archive&&React.createElement(ArchiveModal,{container:modal.archive,onConfirm:async()=>{
+      try{
+        await api(`/containers/${modal.archive.id}/archive`,{method:'POST'});
+        setModal(null);
+        showToast('Tenant archived — container is now clear','success');
+        load();
+      }catch(e){showToast(e.message,'error');}
+    },onClose:()=>setModal(null)})
   );
 }
 
 // ── Settings page ─────────────────────────────────────────────────────────────
+// ── History page ──────────────────────────────────────────────────────────────
+function HistoryPage(){
+  const{showToast,user}=useApp();
+  const[rows,setRows]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[search,setSearch]=useState('');
+  const[selected,setSelected]=useState(null);
+  const[delId,setDelId]=useState(null);
+
+  const load=useCallback(async()=>{
+    setLoading(true);
+    try{
+      const q=new URLSearchParams();
+      if(search)q.set('search',search);
+      setRows(await api('/history?'+q));
+    }catch(e){showToast(e.message,'error');}
+    finally{setLoading(false);}
+  },[search]);
+
+  useEffect(()=>{load();},[load]);
+
+  const handleDelete=async()=>{
+    try{
+      await api(`/history/${delId}`,{method:'DELETE'});
+      setDelId(null);
+      showToast('Record deleted','success');
+      load();
+    }catch(e){showToast(e.message,'error');}
+  };
+
+  const fmt2=(v)=>v?new Date(v).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'—';
+
+  return React.createElement('div',null,
+    // Detail modal
+    selected&&React.createElement('div',{className:'overlay',onClick:e=>{if(e.target===e.currentTarget)setSelected(null)}},
+      React.createElement('div',{className:'modal',style:{maxWidth:560}},
+        React.createElement('div',{className:'modal-header'},
+          React.createElement('span',{className:'modal-title'},'Archived Record — '+selected.container_number),
+          React.createElement('button',{className:'modal-close',onClick:()=>setSelected(null)},React.createElement(Icon,{name:'close',size:18}))
+        ),
+        React.createElement('div',{className:'modal-body'},
+          React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 20px'}},
+            ...[
+              ['Container',selected.container_number],
+              ['Size',selected.container_size],
+              ['Location',selected.location],
+              ['Customer',selected.customer_name||'—'],
+              ['Phone',selected.phone||'—'],
+              ['Email',selected.email||'—'],
+              ['Address',[selected.address1,selected.address2,selected.postcode].filter(Boolean).join(', ')||'—'],
+              ['Start Date',fmt2(selected.start_date)],
+              ['End Date',fmt2(selected.end_date)],
+              ['Monthly Rate',selected.monthly_rate>0?'£'+parseFloat(selected.monthly_rate).toFixed(2):'—'],
+              ['Payment Status',selected.payment_status||'—'],
+              ['Contract Signed',selected.contract_signed?'Yes':'No'],
+              ['ID Checked',selected.id_check?'Yes':'No'],
+              ['Insurance',selected.insurance?'Yes':'No'],
+              ['Joining Email',selected.joining_email_sent?'Yes':'No'],
+              ['Archived',fmt2(selected.archived_at)],
+              ['Archived By',selected.archived_by||'—'],
+            ].map(([label,val])=>React.createElement('div',{key:label,style:{borderBottom:'1px solid var(--border)',paddingBottom:8}},
+              React.createElement('div',{style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'.05em',color:'var(--text3)',marginBottom:3}},label),
+              React.createElement('div',{style:{fontSize:13,color:'var(--text)'}},val)
+            )),
+            selected.notes&&React.createElement('div',{key:'notes',style:{gridColumn:'1/-1',borderBottom:'1px solid var(--border)',paddingBottom:8}},
+              React.createElement('div',{style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'.05em',color:'var(--text3)',marginBottom:3}},'Notes'),
+              React.createElement('div',{style:{fontSize:13,color:'var(--text)',lineHeight:1.5}},selected.notes)
+            )
+          )
+        ),
+        React.createElement('div',{className:'modal-footer'},
+          user.role==='admin'&&React.createElement('button',{className:'btn btn-danger',onClick:()=>{setSelected(null);setDelId(selected.id);}},React.createElement(Icon,{name:'trash',size:14}),'Delete Record'),
+          React.createElement('button',{className:'btn btn-ghost',onClick:()=>setSelected(null)},'Close')
+        )
+      )
+    ),
+    // Delete confirm
+    delId&&React.createElement('div',{className:'overlay',onClick:e=>{if(e.target===e.currentTarget)setDelId(null)}},
+      React.createElement('div',{className:'modal',style:{maxWidth:400}},
+        React.createElement('div',{className:'modal-header'},
+          React.createElement('span',{className:'modal-title'},'Delete Archived Record'),
+          React.createElement('button',{className:'modal-close',onClick:()=>setDelId(null)},React.createElement(Icon,{name:'close',size:18}))
+        ),
+        React.createElement('div',{className:'modal-body'},
+          React.createElement('p',{style:{color:'var(--text2)',lineHeight:1.6}},'This will permanently delete this historical record. This cannot be undone.')
+        ),
+        React.createElement('div',{className:'modal-footer'},
+          React.createElement('button',{className:'btn btn-ghost',onClick:()=>setDelId(null)},'Cancel'),
+          React.createElement('button',{className:'btn btn-danger',onClick:handleDelete},'Delete Permanently')
+        )
+      )
+    ),
+    React.createElement('div',{className:'table-wrap'},
+      React.createElement('div',{className:'table-header'},
+        React.createElement('div',{className:'search-box'},
+          React.createElement(Icon,{name:'search',size:14,style:{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',color:'var(--text3)'}}),
+          React.createElement('input',{placeholder:'Search by name, container, email…',value:search,onChange:e=>setSearch(e.target.value)})
+        ),
+        React.createElement('span',{style:{fontSize:12,color:'var(--text3)',whiteSpace:'nowrap'}},loading?'':rows.length+' record'+(rows.length!==1?'s':''))
+      ),
+      React.createElement('div',{className:'table-scroll'},
+        React.createElement('table',null,
+          React.createElement('thead',null,
+            React.createElement('tr',null,
+              ...['Container','Size','Location','Customer','Phone','Email','Start','End','Rate','Payment','Archived','Archived By',''].map(h=>React.createElement('th',{key:h},h))
+            )
+          ),
+          React.createElement('tbody',null,
+            loading?React.createElement('tr',{className:'empty-row'},React.createElement('td',{colSpan:13},React.createElement('span',{className:'spinner'}))):
+            rows.length===0?React.createElement('tr',{className:'empty-row'},React.createElement('td',{colSpan:13},'No archived records yet. When you clear a container, the tenant details will appear here.')):
+            rows.map(r=>React.createElement('tr',{key:r.id,style:{cursor:'pointer'},onClick:()=>setSelected(r)},
+              React.createElement('td',{className:'primary'},r.container_number),
+              React.createElement('td',null,r.container_size),
+              React.createElement('td',null,r.location),
+              React.createElement('td',{style:{fontWeight:500,color:'var(--text)'}},r.customer_name||'—'),
+              React.createElement('td',null,r.phone||'—'),
+              React.createElement('td',null,r.email||'—'),
+              React.createElement('td',null,r.start_date?new Date(r.start_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}):'—'),
+              React.createElement('td',null,r.end_date?new Date(r.end_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}):'—'),
+              React.createElement('td',null,r.monthly_rate>0?'£'+parseFloat(r.monthly_rate).toFixed(0):'—'),
+              React.createElement('td',null,payBadge(r.payment_status)),
+              React.createElement('td',null,new Date(r.archived_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})),
+              React.createElement('td',{style:{fontFamily:'var(--mono)',fontSize:11,color:'var(--text3)'}},r.archived_by||'—'),
+              React.createElement('td',null,React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:e=>{e.stopPropagation();setSelected(r);}},React.createElement(Icon,{name:'external',size:13})))
+            ))
+          )
+        )
+      )
+    )
+  );
+}
+
+
 // ── Dropdown config panel ─────────────────────────────────────────────────────
 const DEFAULT_OPTIONS = {
   container_sizes: ['8ft','20ft','30ft','45ft','','',''],
@@ -682,10 +870,11 @@ function App(){
   const navItems=[
     {id:'dashboard',icon:'dashboard',label:'Dashboard'},
     {id:'containers',icon:'containers',label:'Containers'},
+    {id:'history',icon:'archive',label:'Rental History'},
     {id:'settings',icon:'settings',label:'Settings'},
   ];
-  const pageTitles={dashboard:['Dashboard','Overview & key metrics'],containers:['Containers','Manage all storage units & customers'],settings:['Settings','Account & user management']};
-  const pageContent={dashboard:React.createElement(DashboardPage),containers:React.createElement(ContainersPage),settings:React.createElement(SettingsPage)};
+  const pageTitles={dashboard:['Dashboard','Overview & key metrics'],containers:['Containers','Manage all storage units & customers'],history:['Rental History','Archived tenant records'],settings:['Settings','Account & user management']};
+  const pageContent={dashboard:React.createElement(DashboardPage),containers:React.createElement(ContainersPage),history:React.createElement(HistoryPage),settings:React.createElement(SettingsPage)};
   return React.createElement(AppCtx.Provider,{value:{user,showToast}},
     React.createElement('div',{className:'app-shell'},
       React.createElement('nav',{className:'sidebar'},
