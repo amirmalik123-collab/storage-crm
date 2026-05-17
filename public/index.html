@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>StorageCRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0e1117;--surface:#161b27;--surface2:#1e2535;--surface3:#252d40;
+  --border:#2a3347;--border2:#3a4560;
+  --text:#e8eaf0;--text2:#9aa3b8;--text3:#5a6478;
+  --blue:#3b82f6;--blue-dim:#1d3c6e;--blue-glow:rgba(59,130,246,.15);
+  --green:#22c55e;--green-dim:#14532d;--green-glow:rgba(34,197,94,.12);
+  --red:#ef4444;--red-dim:#450a0a;
+  --orange:#f97316;--orange-dim:#431407;
+  --amber:#f59e0b;--amber-dim:#451a03;
+  --mono:'IBM Plex Mono',monospace;
+  --sans:'IBM Plex Sans',sans-serif;
+  --radius:8px;--radius-lg:12px;
+}
+html,body,#root{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans)}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--surface)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+/* ── Layout ── */
+.app-shell{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:170px;min-width:170px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:0}
+.sidebar-logo{padding:14px 12px 12px;border-bottom:1px solid var(--border)}
+.logo-mark{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.12em;color:var(--text3);text-transform:uppercase;margin-bottom:3px}
+.logo-name{font-size:13px;font-weight:700;color:var(--text);letter-spacing:-.3px}
+.logo-name span{color:var(--blue)}
+.sidebar-nav{flex:1;padding:12px 8px;overflow-y:auto}
+.nav-section{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);padding:12px 10px 6px}
+.nav-item{display:flex;align-items:center;gap:7px;padding:7px 8px;border-radius:var(--radius);cursor:pointer;color:var(--text2);font-size:12.5px;font-weight:500;transition:all .15s;margin-bottom:1px;border:1px solid transparent}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{background:var(--blue-glow);color:var(--blue);border-color:var(--blue-dim)}
+.nav-item svg{flex-shrink:0;opacity:.8}
+.nav-item.active svg{opacity:1}
+.sidebar-footer{padding:12px 8px;border-top:1px solid var(--border)}
+.user-pill{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--radius);background:var(--surface2)}
+.avatar{width:28px;height:28px;border-radius:50%;background:var(--blue-dim);border:1px solid var(--blue-dim);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--blue);flex-shrink:0}
+.user-info{flex:1;min-width:0}
+.user-name{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-role{font-size:10px;color:var(--text3)}
+.main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.topbar{height:46px;border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;justify-content:space-between;background:var(--surface);flex-shrink:0}
+.page-title{font-size:14px;font-weight:600;color:var(--text)}
+.page-subtitle{font-size:11px;color:var(--text3);margin-top:1px}
+.topbar-actions{display:flex;align-items:center;gap:8px}
+.content{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:var(--radius);border:1px solid;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;white-space:nowrap;font-family:var(--sans)}
+.btn-primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn-primary:hover{background:#2563eb;border-color:#2563eb}
+.btn-ghost{background:transparent;border-color:var(--border);color:var(--text2)}
+.btn-ghost:hover{background:var(--surface2);color:var(--text);border-color:var(--border2)}
+.btn-danger{background:transparent;border-color:var(--red-dim);color:var(--red)}
+.btn-danger:hover{background:var(--red-dim)}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── KPI cards ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 20px;position:relative;overflow:hidden}
+.kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.kpi-card.blue::before{background:var(--blue)}
+.kpi-card.green::before{background:var(--green)}
+.kpi-card.orange::before{background:var(--orange)}
+.kpi-card.red::before{background:var(--red)}
+.kpi-card.amber::before{background:var(--amber)}
+.kpi-label{font-size:11px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+.kpi-value{font-family:var(--mono);font-size:28px;font-weight:600;color:var(--text);line-height:1}
+.kpi-value.blue{color:var(--blue)}
+.kpi-value.green{color:var(--green)}
+.kpi-value.orange{color:var(--orange)}
+.kpi-value.red{color:var(--red)}
+.kpi-value.amber{color:var(--amber)}
+.kpi-sub{font-size:11px;color:var(--text3);margin-top:4px}
+
+/* ── Table ── */
+.table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;display:flex;flex-direction:column;flex:1;min-height:0;margin:20px 24px}
+.table-header{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.search-box{flex:1;min-width:200px;position:relative}
+.search-box input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:7px 10px 7px 32px;color:var(--text);font-size:13px;outline:none;font-family:var(--sans);transition:border-color .15s}
+.search-box input:focus{border-color:var(--blue)}
+.search-box svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--text3)}
+.filter-select{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:7px 10px;color:var(--text);font-size:13px;outline:none;cursor:pointer;font-family:var(--sans)}
+.filter-select:focus{border-color:var(--blue)}
+.table-scroll{overflow:auto;flex:1;min-height:0}
+table{min-width:1000px}
+.table-scroll::-webkit-scrollbar{width:10px;height:10px}
+.table-scroll::-webkit-scrollbar-track{background:var(--surface2);border-radius:4px}
+.table-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px;border:2px solid var(--surface2)}
+.table-scroll::-webkit-scrollbar-thumb:hover{background:var(--text3)}
+.table-scroll::-webkit-scrollbar-corner{background:var(--surface2)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{padding:8px 10px;text-align:left;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);background:var(--surface2);border-bottom:1px solid var(--border);white-space:nowrap;position:sticky;top:0}
+tbody tr{border-bottom:1px solid var(--border);transition:background .1s;cursor:pointer}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:var(--surface2)}
+tbody tr.occupied{background:rgba(34,197,94,.04)}
+tbody tr.occupied:hover{background:rgba(34,197,94,.08)}
+tbody tr.expiring{background:rgba(249,115,22,.05)}
+tbody tr.expiring:hover{background:rgba(249,115,22,.1)}
+td{padding:8px 10px;color:var(--text2);vertical-align:middle;white-space:nowrap}
+td.primary{color:var(--text);font-weight:500;font-family:var(--mono);font-size:12px}
+td.notes-cell{max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.empty-row td{text-align:center;padding:40px;color:var(--text3)}
+
+/* ── Status + badges ── */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;font-family:var(--mono);letter-spacing:.05em;white-space:nowrap}
+.badge-occupied{background:var(--green-dim);color:#4ade80;border:1px solid #14532d}
+.badge-vacant{background:var(--surface3);color:var(--text3);border:1px solid var(--border)}
+.badge-paid{background:rgba(34,197,94,.12);color:#4ade80}
+.badge-overdue{background:var(--red-dim);color:#f87171}
+.badge-pending{background:var(--amber-dim);color:#fbbf24}
+.badge-dd{background:var(--blue-dim);color:#93c5fd}
+.badge-yes{color:var(--green);font-size:12px}
+.badge-no{color:var(--text3);font-size:12px}
+.expiry-warn{color:var(--orange);font-family:var(--mono);font-size:12px}
+.expiry-ok{color:var(--text3);font-family:var(--mono);font-size:12px}
+.expiry-expired{color:var(--red);font-family:var(--mono);font-size:12px}
+
+/* ── Modal ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;backdrop-filter:blur(2px)}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius-lg);width:100%;max-width:700px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 25px 60px rgba(0,0,0,.5)}
+.modal-header{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.modal-title{font-size:15px;font-weight:600}
+.modal-close{background:none;border:none;color:var(--text3);cursor:pointer;padding:4px;border-radius:4px;display:flex;align-items:center;justify-content:center;transition:color .15s}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:22px;overflow-y:auto;flex:1}
+.modal-footer{padding:16px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:10px;flex-shrink:0}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-grid.cols-3{grid-template-columns:1fr 1fr 1fr}
+.form-group{display:flex;flex-direction:column;gap:5px}
+.form-group.full{grid-column:1/-1}
+label{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3)}
+input[type=text],input[type=email],input[type=tel],input[type=number],input[type=date],select,textarea{
+  background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:8px 10px;color:var(--text);font-size:13px;outline:none;width:100%;
+  font-family:var(--sans);transition:border-color .15s;
+  color-scheme:dark
+}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);background:var(--surface3)}
+textarea{resize:vertical;min-height:64px}
+.checkbox-row{display:flex;align-items:center;gap:8px;padding:9px 0}
+.checkbox-row label{text-transform:none;letter-spacing:0;font-size:13px;font-weight:400;color:var(--text);cursor:pointer}
+input[type=checkbox]{width:15px;height:15px;accent-color:var(--blue);cursor:pointer}
+.form-section{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);padding:14px 0 8px;border-bottom:1px solid var(--border);margin-bottom:14px;grid-column:1/-1}
+.form-error{color:var(--red);font-size:12px;margin-top:4px}
+
+/* ── Alert/notice ── */
+.alert{padding:12px 16px;border-radius:var(--radius);font-size:13px;display:flex;align-items:flex-start;gap:8px;margin-bottom:16px}
+.alert-warn{background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.25);color:var(--orange)}
+.alert-info{background:var(--blue-glow);border:1px solid var(--blue-dim);color:var(--blue)}
+
+/* ── Login page ── */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:40px;width:100%;max-width:380px}
+.login-logo{text-align:center;margin-bottom:32px}
+.login-logo-mark{font-family:var(--mono);font-size:10px;letter-spacing:.2em;color:var(--text3);text-transform:uppercase;margin-bottom:8px}
+.login-logo-name{font-size:22px;font-weight:700;color:var(--text);letter-spacing:-.5px}
+.login-logo-name span{color:var(--blue)}
+.login-card h2{font-size:17px;font-weight:600;margin-bottom:4px}
+.login-card p{color:var(--text3);font-size:13px;margin-bottom:24px}
+.login-field{margin-bottom:14px}
+.login-field label{display:block;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);margin-bottom:5px}
+.login-error{color:var(--red);font-size:13px;padding:10px;background:var(--red-dim);border-radius:var(--radius);margin-bottom:14px;text-align:center}
+.login-btn{width:100%;padding:10px;font-size:14px;font-weight:600;background:var(--blue);border:none;border-radius:var(--radius);color:#fff;cursor:pointer;transition:background .15s;font-family:var(--sans)}
+.login-btn:hover{background:#2563eb}
+.login-hint{text-align:center;font-size:11px;color:var(--text3);margin-top:16px;font-family:var(--mono)}
+
+/* ── Expiry section ── */
+.expiry-list{display:flex;flex-direction:column;gap:8px;margin-bottom:24px}
+.expiry-item{background:var(--surface);border:1px solid rgba(249,115,22,.3);border-radius:var(--radius);padding:12px 16px;display:flex;align-items:center;gap:14px}
+.expiry-days{font-family:var(--mono);font-size:18px;font-weight:600;color:var(--orange);min-width:40px}
+.expiry-info{flex:1}
+.expiry-container{font-weight:600;font-size:13px}
+.expiry-customer{font-size:12px;color:var(--text3)}
+.section-title{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.section-title svg{color:var(--orange)}
+
+/* ── Settings page ── */
+.settings-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;margin-bottom:16px}
+.settings-card h3{font-size:14px;font-weight:600;margin-bottom:16px;color:var(--text)}
+.users-table{width:100%;border-collapse:collapse;font-size:13px}
+.users-table th{text-align:left;padding:8px 12px;font-size:10px;font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--text3);border-bottom:1px solid var(--border)}
+.users-table td{padding:10px 12px;border-bottom:1px solid var(--border);color:var(--text2)}
+.users-table tr:last-child td{border-bottom:none}
+
+/* ── Responsive: hide less-critical columns on narrow screens ── */
+@media(max-width:1100px){
+  .col-hide{display:none;}
+}
+
+/* ── Loading / toast ── */
+.spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);padding:12px 16px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:2000;animation:slideUp .2s ease;max-width:320px}
+.toast.success{border-color:var(--green-dim);color:var(--green)}
+.toast.error{border-color:var(--red-dim);color:var(--red)}
+@keyframes slideUp{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* ── Responsive ── */
+@media(max-width:900px){
+  .sidebar{display:none}
+  .form-grid{grid-template-columns:1fr}
+  .form-grid.cols-3{grid-template-columns:1fr 1fr}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+const {useState,useEffect,useCallback,useRef,createContext,useContext}=React;
+
+// ── API helper ────────────────────────────────────────────────────────────────
+const api=async(path,opts={})=>{
+  const token=localStorage.getItem('crm_token');
+  const headers={'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})};
+  const r=await fetch('/api'+path,{headers,...opts,body:opts.body?JSON.stringify(opts.body):undefined});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(data.error||'Request failed');
+  return data;
+};
+
+// ── Context ───────────────────────────────────────────────────────────────────
+const AppCtx=createContext(null);
+function useApp(){return useContext(AppCtx);}
+
+// ── Icons (SVG inline) ────────────────────────────────────────────────────────
+const Icon=({name,size=16,style={}})=>{
+  const icons={
+    dashboard:`<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/>`,
+    containers:`<rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/>`,
+    settings:`<circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>`,
+    logout:`<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>`,
+    plus:`<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>`,
+    search:`<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`,
+    edit:`<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>`,
+    trash:`<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>`,
+    warn:`<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>`,
+    close:`<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`,
+    box:`<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>`,
+    users:`<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
+    currency:`<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>`,
+    archive:`<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>`,
+    external:`<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>`,
+  };
+  return React.createElement('svg',{xmlns:'http://www.w3.org/2000/svg',width:size,height:size,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round',style,dangerouslySetInnerHTML:{__html:icons[name]||''}});
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const fmt=(v)=>v?new Date(v).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'—';
+const payBadge=(s)=>{
+  if(!s)return null;
+  const cls={Paid:'badge-paid',Overdue:'badge-overdue',Pending:'badge-pending','Direct Debit':'badge-dd','Credit Note':'badge-dd'}[s]||'badge-pending';
+  return React.createElement('span',{className:`badge ${cls}`},s);
+};
+const statusBadge=(s)=>React.createElement('span',{className:`badge ${s==='Occupied'?'badge-occupied':'badge-vacant'}`},s==='Occupied'?'● OCCUPIED':'○ VACANT');
+const bool=(v)=>React.createElement('span',{className:v?'badge-yes':'badge-no'},v?'✓':'—');
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function Toast({msg,type,onDone}){
+  useEffect(()=>{const t=setTimeout(onDone,3200);return()=>clearTimeout(t)},[]);
+  return React.createElement('div',{className:`toast ${type}`},msg);
+}
+
+// ── Container form modal ──────────────────────────────────────────────────────
+const EMPTY={container_number:'',container_size:'20ft',location:'Back Row',order_date:'',start_date:'',end_date:'',customer_name:'',joining_email_sent:false,id_check:false,phone:'',email:'',address1:'',address2:'',postcode:'',contract_signed:false,insurance:false,monthly_rate:'',payment_status:'Pending',notes:''};
+
+function ContainerModal({initial,onSave,onClose,onDelete}){
+  const[form,setForm]=useState(initial?{...initial,joining_email_sent:!!initial.joining_email_sent,id_check:!!initial.id_check,contract_signed:!!initial.contract_signed,insurance:!!initial.insurance,start_date:initial.start_date||'',end_date:initial.end_date||'',order_date:initial.order_date||''}:{...EMPTY});
+  const[saving,setSaving]=useState(false);
+  const[err,setErr]=useState('');
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const submit=async()=>{
+    if(!form.container_number.trim()){setErr('Container number is required');return;}
+    setSaving(true);setErr('');
+    try{
+      const method=initial?'PUT':'POST';
+      const path=initial?`/containers/${initial.id}`:'/containers';
+      const data=await api(path,{method,body:{...form,start_date:form.start_date||null,end_date:form.end_date||null,order_date:form.order_date||null}});
+      onSave(data);
+    }catch(e){setErr(e.message);}finally{setSaving(false);}
+  };
+  const F=(props)=>React.createElement(React.Fragment,null,
+    React.createElement('div',{className:'form-group '+(props.full?'full':'')},
+      React.createElement('label',null,props.label),
+      React.createElement('input',{type:props.type||'text',value:form[props.k]||'',onChange:e=>set(props.k,e.target.value),...(props.placeholder?{placeholder:props.placeholder}:{})})
+    )
+  );
+  const crmOpts=window.getCRMOptions?window.getCRMOptions():DEFAULT_OPTIONS;
+  const Sel=(props)=>React.createElement('div',{className:'form-group'},
+    React.createElement('label',null,props.label),
+    React.createElement('select',{value:form[props.k],onChange:e=>set(props.k,e.target.value)},
+      ...props.opts.filter(o=>o&&o.trim()).map(o=>React.createElement('option',{key:o,value:o},o))
+    )
+  );
+  const Chk=(props)=>React.createElement('div',{className:'checkbox-row'},
+    React.createElement('input',{type:'checkbox',id:props.k,checked:!!form[props.k],onChange:e=>set(props.k,e.target.checked)}),
+    React.createElement('label',{htmlFor:props.k},props.label)
+  );
+  return React.createElement('div',{className:'overlay',onClick:e=>{if(e.target===e.currentTarget)onClose()}},
+    React.createElement('div',{className:'modal'},
+      React.createElement('div',{className:'modal-header'},
+        React.createElement('span',{className:'modal-title'},initial?`Edit Container — ${initial.container_number}`:'Add New Container'),
+        React.createElement('button',{className:'modal-close',onClick:onClose},React.createElement(Icon,{name:'close',size:18}))),
+      React.createElement('div',{className:'modal-body'},
+        err&&React.createElement('div',{className:'form-error',style:{marginBottom:12}},err),
+        React.createElement('div',{className:'form-grid'},
+          React.createElement('div',{className:'form-section'},'Container Details'),
+          F({k:'container_number',label:'Container #',placeholder:'e.g. C-025'}),
+          React.createElement(Sel,{k:'container_size',label:'Size',opts:crmOpts.container_sizes}),
+          React.createElement(Sel,{k:'location',label:'Location',opts:crmOpts.locations}),
+          React.createElement('div',{className:'form-section'},'Rental Period'),
+          F({k:'order_date',label:'Order Date',type:'date'}),
+          F({k:'start_date',label:'Start Date',type:'date'}),
+          F({k:'end_date',label:'End Date (blank = rolling)',type:'date'}),
+          React.createElement(Sel,{k:'payment_status',label:'Payment Status',opts:crmOpts.payment_statuses}),
+          React.createElement('div',{className:'form-group'},
+            React.createElement('label',null,'Monthly Rate (£)'),
+            React.createElement('input',{type:'number',min:0,step:0.01,value:form.monthly_rate||'',onChange:e=>set('monthly_rate',e.target.value)})
+          ),
+          React.createElement('div',{className:'form-section'},'Customer Details'),
+          F({k:'customer_name',label:'Full Name',full:true}),
+          F({k:'phone',label:'Phone',type:'tel'}),
+          F({k:'email',label:'Email',type:'email'}),
+          F({k:'address1',label:'Address Line 1',full:true}),
+          F({k:'address2',label:'Address Line 2 / City'}),
+          F({k:'postcode',label:'Postcode'}),
+          React.createElement('div',{className:'form-section'},'Checklist'),
+          React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gridColumn:'1/-1'}},
+            React.createElement(Chk,{k:'joining_email_sent',label:'Joining email sent'}),
+            React.createElement(Chk,{k:'id_check',label:'ID checked'}),
+            React.createElement(Chk,{k:'contract_signed',label:'Contract signed'}),
+            React.createElement(Chk,{k:'insurance',label:'Insurance in place'})
+          ),
+          React.createElement('div',{className:'form-group full'},
+            React.createElement('label',null,'Notes'),
+            React.createElement('textarea',{value:form.notes||'',onChange:e=>set('notes',e.target.value),placeholder:'Any additional notes...'})
+          )
+        )
+      ),
+      React.createElement('div',{className:'modal-footer'},
+        React.createElement('div',{style:{flex:1}},
+          initial&&React.createElement('button',{
+            className:'btn btn-danger',
+            onClick:()=>{onDelete(initial);},
+          },React.createElement(Icon,{name:'trash',size:14}),'Delete Container')
+        ),
+        React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),
+        React.createElement('button',{className:'btn btn-primary',onClick:submit,disabled:saving},saving?React.createElement('span',{className:'spinner'}):'Save Container')
+      )
+    )
+  );
+}
+
+// ── Delete confirm modal ──────────────────────────────────────────────────────
+function DeleteModal({container,onConfirm,onClose}){
+  const[loading,setLoading]=useState(false);
+  const go=async()=>{setLoading(true);await onConfirm();setLoading(false);};
+  return React.createElement('div',{className:'overlay',onClick:e=>{if(e.target===e.currentTarget)onClose()}},
+    React.createElement('div',{className:'modal',style:{maxWidth:400}},
+      React.createElement('div',{className:'modal-header'},
+        React.createElement('span',{className:'modal-title'},'Delete Container'),
+        React.createElement('button',{className:'modal-close',onClick:onClose},React.createElement(Icon,{name:'close',size:18}))),
+      React.createElement('div',{className:'modal-body'},
+        React.createElement('p',{style:{color:'var(--text2)',lineHeight:1.6}},
+          `This will permanently delete container `,React.createElement('strong',{style:{color:'var(--text)'}},container.container_number),
+          container.customer_name?` (assigned to ${container.customer_name})`:'',
+          `. This action cannot be undone.`
+        )
+      ),
+      React.createElement('div',{className:'modal-footer'},
+        React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),
+        React.createElement('button',{className:'btn btn-danger',onClick:go,disabled:loading},loading?React.createElement('span',{className:'spinner'}):'Delete')
+      )
+    )
+  );
+}
+
+// ── Dashboard page ────────────────────────────────────────────────────────────
+function DashboardPage(){
+  const[stats,setStats]=useState(null);
+  useEffect(()=>{api('/dashboard').then(setStats).catch(()=>{})},[]);
+  if(!stats)return React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'center',height:200}},React.createElement('span',{className:'spinner'}));
+  return React.createElement('div',null,
+    React.createElement('div',{className:'kpi-grid'},
+      React.createElement('div',{className:'kpi-card blue'},React.createElement('div',{className:'kpi-label'},'Total Containers'),React.createElement('div',{className:'kpi-value blue'},stats.total)),
+      React.createElement('div',{className:'kpi-card green'},React.createElement('div',{className:'kpi-label'},'Occupied'),React.createElement('div',{className:'kpi-value green'},stats.occupied),React.createElement('div',{className:'kpi-sub'},'containers in use')),
+      React.createElement('div',{className:'kpi-card'},React.createElement('div',{className:'kpi-label'},'Vacant'),React.createElement('div',{className:'kpi-value'},stats.vacant),React.createElement('div',{className:'kpi-sub'},'available')),
+      React.createElement('div',{className:'kpi-card blue'},React.createElement('div',{className:'kpi-label'},'Occupancy Rate'),React.createElement('div',{className:'kpi-value blue'},(stats.occupancy_rate*100).toFixed(0)+'%')),
+      React.createElement('div',{className:'kpi-card amber'},React.createElement('div',{className:'kpi-label'},'Expiring ≤30 Days'),React.createElement('div',{className:'kpi-value amber'},stats.expiring_soon)),
+      React.createElement('div',{className:'kpi-card red'},React.createElement('div',{className:'kpi-label'},'Overdue Payments'),React.createElement('div',{className:'kpi-value red'},stats.overdue_payments)),
+      React.createElement('div',{className:'kpi-card green'},React.createElement('div',{className:'kpi-label'},'Monthly Revenue'),React.createElement('div',{className:'kpi-value green',style:{fontSize:22}},'£'+stats.monthly_revenue.toLocaleString('en-GB',{minimumFractionDigits:0})),React.createElement('div',{className:'kpi-sub'},'from occupied units'))
+    ),
+    stats.expiring_containers.length>0&&React.createElement('div',null,
+      React.createElement('div',{className:'section-title'},React.createElement(Icon,{name:'warn',size:15}),'Contracts Expiring Soon'),
+      React.createElement('div',{className:'expiry-list'},
+        ...stats.expiring_containers.map(c=>React.createElement('div',{key:c.id,className:'expiry-item'},
+          React.createElement('div',{className:'expiry-days'},c.days_until_expiry+'d'),
+          React.createElement('div',{className:'expiry-info'},
+            React.createElement('div',{className:'expiry-container'},c.container_number,' · ',c.container_size,' · ',c.location),
+            React.createElement('div',{className:'expiry-customer'},c.customer_name||'No customer assigned',' · Ends ',fmt(c.end_date))
+          ),
+          React.createElement('span',{className:'badge badge-occupied'},'OCCUPIED')
+        ))
+      )
+    )
+  );
+}
+
+// ── Containers page ───────────────────────────────────────────────────────────
+// ── Archive confirm modal ─────────────────────────────────────────────────────
+function ArchiveModal({container,onConfirm,onClose}){
+  const[loading,setLoading]=useState(false);
+  const go=async()=>{setLoading(true);await onConfirm();setLoading(false);};
+  return React.createElement('div',{className:'overlay',onClick:e=>{if(e.target===e.currentTarget)onClose()}},
+    React.createElement('div',{className:'modal',style:{maxWidth:460}},
+      React.createElement('div',{className:'modal-header'},
+        React.createElement('span',{className:'modal-title'},'Archive Tenant & Clear Container'),
+        React.createElement('button',{className:'modal-close',onClick:onClose},React.createElement(Icon,{name:'close',size:18}))
+      ),
+      React.createElement('div',{className:'modal-body'},
+        React.createElement('div',{className:'alert alert-warn',style:{marginBottom:16}},
+          React.createElement(Icon,{name:'warn',size:15}),
+          React.createElement('div',null,
+            React.createElement('strong',null,'This will permanently clear the container.'),' The tenant details will be saved to Rental History and the container will be reset, ready for a new customer.'
+          )
+        ),
+        React.createElement('div',{style:{background:'var(--surface2)',borderRadius:'var(--radius)',padding:'14px 16px',fontSize:13}},
+          React.createElement('div',{style:{fontWeight:600,color:'var(--text)',marginBottom:6}},container.container_number+' — '+container.container_size),
+          React.createElement('div',{style:{color:'var(--text2)'}},container.customer_name||'(no name)'),
+          container.start_date&&React.createElement('div',{style:{color:'var(--text3)',fontSize:12,marginTop:4}},
+            'From '+new Date(container.start_date).toLocaleDateString('en-GB')+
+            (container.end_date?' to '+new Date(container.end_date).toLocaleDateString('en-GB'):' (rolling)')
+          )
+        )
+      ),
+      React.createElement('div',{className:'modal-footer'},
+        React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),
+        React.createElement('button',{
+          className:'btn',
+          style:{background:'var(--amber-dim)',borderColor:'var(--amber)',color:'var(--amber)'},
+          onClick:go,disabled:loading
+        },loading?React.createElement('span',{className:'spinner'}):React.createElement(Icon,{name:'archive',size:14}),' Archive & Clear')
+      )
+    )
+  );
+}
+
+
+function ContainersPage(){
+  const{showToast}=useApp();
+  const[rows,setRows]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[search,setSearch]=useState('');
+  const[statusF,setStatusF]=useState('');
+  const[payF,setPayF]=useState('');
+  const[locF,setLocF]=useState('');
+  const[modal,setModal]=useState(null); // null | 'add' | {edit:container} | {del:container}
+  const load=useCallback(async()=>{
+    setLoading(true);
+    try{
+      const q=new URLSearchParams();
+      if(search)q.set('search',search);
+      if(statusF)q.set('status',statusF);
+      if(payF)q.set('payment_status',payF);
+      if(locF)q.set('location',locF);
+      setRows(await api('/containers?'+q));
+    }finally{setLoading(false);}
+  },[search,statusF,payF,locF]);
+  useEffect(()=>{load();},[load]);
+
+  const handleSave=async(data)=>{
+    setModal(null);
+    showToast(modal==='add'?'Container added':'Container updated','success');
+    load();
+  };
+  const handleDelete=async()=>{
+    try{await api(`/containers/${modal.del.id}`,{method:'DELETE'});setModal(null);showToast('Container deleted','success');load();}
+    catch(e){showToast(e.message,'error');}
+  };
+  const rowClass=(c)=>{
+    if(c.days_until_expiry!==null&&c.days_until_expiry<=30&&c.days_until_expiry>=0)return 'expiring';
+    if(c.status==='Occupied')return 'occupied';
+    return '';
+  };
+
+  return React.createElement('div',{style:{display:'flex',flexDirection:'column',flex:1,minHeight:0}},
+    React.createElement('div',{className:'table-wrap'},
+      React.createElement('div',{className:'table-header'},
+        React.createElement('div',{className:'search-box'},
+          React.createElement(Icon,{name:'search',size:14,style:{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',color:'var(--text3)'}}),
+          React.createElement('input',{placeholder:'Search containers, customers, notes…',value:search,onChange:e=>setSearch(e.target.value)})
+        ),
+        React.createElement('select',{className:'filter-select',value:statusF,onChange:e=>setStatusF(e.target.value)},
+          React.createElement('option',{value:''},'All Statuses'),
+          React.createElement('option',{value:'Occupied'},'Occupied'),
+          React.createElement('option',{value:'Vacant'},'Vacant')
+        ),
+        React.createElement('select',{className:'filter-select',value:payF,onChange:e=>setPayF(e.target.value)},
+          React.createElement('option',{value:''},'All Payments'),
+          ...['Paid','Pending','Overdue','Direct Debit','Credit Note'].map(s=>React.createElement('option',{key:s,value:s},s))
+        ),
+        React.createElement('select',{className:'filter-select',value:locF,onChange:e=>setLocF(e.target.value)},
+          React.createElement('option',{value:''},'All Locations'),
+          ...(window.getCRMOptions?window.getCRMOptions().locations:[]).filter(o=>o&&o.trim()).map(s=>React.createElement('option',{key:s,value:s},s))
+        ),
+        React.createElement('button',{className:'btn btn-primary btn-sm',onClick:()=>setModal('add')},React.createElement(Icon,{name:'plus',size:14}),'Add Container')
+      ),
+      React.createElement('div',{className:'table-scroll'},
+        React.createElement('table',null,
+          React.createElement('thead',null,
+            React.createElement('tr',null,
+              ...['#','Size','Location','Status','Start','End','Customer','Email Sent','ID Check','Contract','Insurance','Rate','Payment','Days','Expiry','','Notes',''].map((h,i)=>React.createElement('th',{key:h||i,className:['Email Sent','ID Check','Contract','Insurance'].includes(h)?'col-hide':''},h))
+            )
+          ),
+          React.createElement('tbody',null,
+            loading?React.createElement('tr',{className:'empty-row'},React.createElement('td',{colSpan:17},React.createElement('span',{className:'spinner'}))):
+            rows.length===0?React.createElement('tr',{className:'empty-row'},React.createElement('td',{colSpan:17},'No containers found. Adjust your filters or add a new container.')):
+            rows.map(c=>React.createElement('tr',{key:c.id,className:rowClass(c),onClick:()=>setModal({edit:c})},
+              React.createElement('td',{className:'primary'},c.container_number),
+              React.createElement('td',null,c.container_size),
+              React.createElement('td',null,c.location),
+              React.createElement('td',null,statusBadge(c.status)),
+              React.createElement('td',null,c.start_date?new Date(c.start_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}):'—'),
+              React.createElement('td',null,c.end_date?new Date(c.end_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}):'Rolling'),
+              React.createElement('td',null,c.customer_name||React.createElement('span',{style:{color:'var(--text3)'}},c.status==='Vacant'?'—':'Unassigned')),
+              React.createElement('td',{style:{textAlign:'center'},className:'col-hide'},bool(c.joining_email_sent)),
+              React.createElement('td',{style:{textAlign:'center'},className:'col-hide'},bool(c.id_check)),
+              React.createElement('td',{style:{textAlign:'center'},className:'col-hide'},bool(c.contract_signed)),
+              React.createElement('td',{style:{textAlign:'center'},className:'col-hide'},bool(c.insurance)),
+              React.createElement('td',null,c.monthly_rate>0?'£'+c.monthly_rate.toFixed(0):'—'),
+              React.createElement('td',null,payBadge(c.payment_status)),
+              React.createElement('td',null,c.days_occupied!==null?React.createElement('span',{style:{fontFamily:'var(--mono)',fontSize:12}},c.days_occupied+'d'):'—'),
+              React.createElement('td',null,c.days_until_expiry!==null?React.createElement('span',{className:c.days_until_expiry<=30&&c.days_until_expiry>=0?'expiry-warn':c.days_until_expiry<0?'expiry-expired':'expiry-ok'},c.days_until_expiry+'d'):'—'),
+              React.createElement('td',null,
+                (c.customer_name||c.start_date)?React.createElement('button',{
+                  className:'btn btn-sm',
+                  style:{background:'rgba(245,158,11,0.15)',borderColor:'var(--amber)',color:'var(--amber)',gap:4,whiteSpace:'nowrap'},
+                  onClick:e=>{e.stopPropagation();setModal({archive:c})}
+                },React.createElement(Icon,{name:'archive',size:12}),'Clear'):null
+              ),
+              React.createElement('td',{className:'notes-cell col-hide',title:c.notes||''},c.notes||'—'),
+              React.createElement('td',null)
+            ))
+          )
+        )
+      )
+    ),
+    modal==='add'&&React.createElement(ContainerModal,{onSave:handleSave,onClose:()=>setModal(null)}),
+    modal&&modal.edit&&React.createElement(ContainerModal,{initial:modal.edit,onSave:handleSave,onClose:()=>setModal(null),onDelete:(c)=>{setModal({del:c});}}),
+    modal&&modal.del&&React.createElement(DeleteModal,{container:modal.del,onConfirm:handleDelete,onClose:()=>setModal(null)}),
+    modal&&modal.archive&&React.createElement(ArchiveModal,{container:modal.archive,onConfirm:async()=>{
+      try{
+        await api(`/containers/${modal.archive.id}/archive`,{method:'POST'});
+        setModal(null);
+        showToast('Tenant archived — container is now clear','success');
+        load();
+      }catch(e){showToast(e.message,'error');}
+    },onClose:()=>setModal(null)})
+  );
+}
+
+// ── Settings page ─────────────────────────────────────────────────────────────
+// ── History page ──────────────────────────────────────────────────────────────
+function HistoryPage(){
+  const{showToast,user}=useApp();
+  const[rows,setRows]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[search,setSearch]=useState('');
+  const[selected,setSelected]=useState(null);
+  const[delId,setDelId]=useState(null);
+
+  const load=useCallback(async()=>{
+    setLoading(true);
+    try{
+      const q=new URLSearchParams();
+      if(search)q.set('search',search);
+      setRows(await api('/history?'+q));
+    }catch(e){showToast(e.message,'error');}
+    finally{setLoading(false);}
+  },[search]);
+
+  useEffect(()=>{load();},[load]);
+
+  const handleDelete=async()=>{
+    try{
+      await api(`/history/${delId}`,{method:'DELETE'});
+      setDelId(null);
+      showToast('Record deleted','success');
+      load();
+    }catch(e){showToast(e.message,'error');}
+  };
+
+  const fmt2=(v)=>v?new Date(v).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'—';
+
+  return React.createElement('div',{style:{display:'flex',flexDirection:'column',flex:1,minHeight:0}},
+    // Detail modal
+    selected&&React.createElement('div',{className:'overlay',onClick:e=>{if(e.target===e.currentTarget)setSelected(null)}},
+      React.createElement('div',{className:'modal',style:{maxWidth:560}},
+        React.createElement('div',{className:'modal-header'},
+          React.createElement('span',{className:'modal-title'},'Archived Record — '+selected.container_number),
+          React.createElement('button',{className:'modal-close',onClick:()=>setSelected(null)},React.createElement(Icon,{name:'close',size:18}))
+        ),
+        React.createElement('div',{className:'modal-body'},
+          React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 20px'}},
+            ...[
+              ['Container',selected.container_number],
+              ['Size',selected.container_size],
+              ['Location',selected.location],
+              ['Customer',selected.customer_name||'—'],
+              ['Phone',selected.phone||'—'],
+              ['Email',selected.email||'—'],
+              ['Address',[selected.address1,selected.address2,selected.postcode].filter(Boolean).join(', ')||'—'],
+              ['Start Date',fmt2(selected.start_date)],
+              ['End Date',fmt2(selected.end_date)],
+              ['Monthly Rate',selected.monthly_rate>0?'£'+parseFloat(selected.monthly_rate).toFixed(2):'—'],
+              ['Payment Status',selected.payment_status||'—'],
+              ['Contract Signed',selected.contract_signed?'Yes':'No'],
+              ['ID Checked',selected.id_check?'Yes':'No'],
+              ['Insurance',selected.insurance?'Yes':'No'],
+              ['Joining Email',selected.joining_email_sent?'Yes':'No'],
+              ['Archived',fmt2(selected.archived_at)],
+              ['Archived By',selected.archived_by||'—'],
+            ].map(([label,val])=>React.createElement('div',{key:label,style:{borderBottom:'1px solid var(--border)',paddingBottom:8}},
+              React.createElement('div',{style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'.05em',color:'var(--text3)',marginBottom:3}},label),
+              React.createElement('div',{style:{fontSize:13,color:'var(--text)'}},val)
+            )),
+            selected.notes&&React.createElement('div',{key:'notes',style:{gridColumn:'1/-1',borderBottom:'1px solid var(--border)',paddingBottom:8}},
+              React.createElement('div',{style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'.05em',color:'var(--text3)',marginBottom:3}},'Notes'),
+              React.createElement('div',{style:{fontSize:13,color:'var(--text)',lineHeight:1.5}},selected.notes)
+            )
+          )
+        ),
+        React.createElement('div',{className:'modal-footer'},
+          user.role==='admin'&&React.createElement('button',{className:'btn btn-danger',onClick:()=>{setSelected(null);setDelId(selected.id);}},React.createElement(Icon,{name:'trash',size:14}),'Delete Record'),
+          React.createElement('button',{className:'btn btn-ghost',onClick:()=>setSelected(null)},'Close')
+        )
+      )
+    ),
+    // Delete confirm
+    delId&&React.createElement('div',{className:'overlay',onClick:e=>{if(e.target===e.currentTarget)setDelId(null)}},
+      React.createElement('div',{className:'modal',style:{maxWidth:400}},
+        React.createElement('div',{className:'modal-header'},
+          React.createElement('span',{className:'modal-title'},'Delete Archived Record'),
+          React.createElement('button',{className:'modal-close',onClick:()=>setDelId(null)},React.createElement(Icon,{name:'close',size:18}))
+        ),
+        React.createElement('div',{className:'modal-body'},
+          React.createElement('p',{style:{color:'var(--text2)',lineHeight:1.6}},'This will permanently delete this historical record. This cannot be undone.')
+        ),
+        React.createElement('div',{className:'modal-footer'},
+          React.createElement('button',{className:'btn btn-ghost',onClick:()=>setDelId(null)},'Cancel'),
+          React.createElement('button',{className:'btn btn-danger',onClick:handleDelete},'Delete Permanently')
+        )
+      )
+    ),
+    React.createElement('div',{className:'table-wrap'},
+      React.createElement('div',{className:'table-header'},
+        React.createElement('div',{className:'search-box'},
+          React.createElement(Icon,{name:'search',size:14,style:{position:'absolute',left:9,top:'50%',transform:'translateY(-50%)',color:'var(--text3)'}}),
+          React.createElement('input',{placeholder:'Search by name, container, email…',value:search,onChange:e=>setSearch(e.target.value)})
+        ),
+        React.createElement('span',{style:{fontSize:12,color:'var(--text3)',whiteSpace:'nowrap'}},loading?'':rows.length+' record'+(rows.length!==1?'s':''))
+      ),
+      React.createElement('div',{className:'table-scroll'},
+        React.createElement('table',null,
+          React.createElement('thead',null,
+            React.createElement('tr',null,
+              ...['Container','Size','Location','Customer','Phone','Email','Start','End','Rate','Payment','Archived','Archived By',''].map(h=>React.createElement('th',{key:h},h))
+            )
+          ),
+          React.createElement('tbody',null,
+            loading?React.createElement('tr',{className:'empty-row'},React.createElement('td',{colSpan:13},React.createElement('span',{className:'spinner'}))):
+            rows.length===0?React.createElement('tr',{className:'empty-row'},React.createElement('td',{colSpan:13},'No archived records yet. When you clear a container, the tenant details will appear here.')):
+            rows.map(r=>React.createElement('tr',{key:r.id,style:{cursor:'pointer'},onClick:()=>setSelected(r)},
+              React.createElement('td',{className:'primary'},r.container_number),
+              React.createElement('td',null,r.container_size),
+              React.createElement('td',null,r.location),
+              React.createElement('td',{style:{fontWeight:500,color:'var(--text)'}},r.customer_name||'—'),
+              React.createElement('td',null,r.phone||'—'),
+              React.createElement('td',null,r.email||'—'),
+              React.createElement('td',null,r.start_date?new Date(r.start_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}):'—'),
+              React.createElement('td',null,r.end_date?new Date(r.end_date).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'2-digit'}):'—'),
+              React.createElement('td',null,r.monthly_rate>0?'£'+parseFloat(r.monthly_rate).toFixed(0):'—'),
+              React.createElement('td',null,payBadge(r.payment_status)),
+              React.createElement('td',null,new Date(r.archived_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})),
+              React.createElement('td',{style:{fontFamily:'var(--mono)',fontSize:11,color:'var(--text3)'}},r.archived_by||'—'),
+              React.createElement('td',null,React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:e=>{e.stopPropagation();setSelected(r);}},React.createElement(Icon,{name:'external',size:13})))
+            ))
+          )
+        )
+      )
+    )
+  );
+}
+
+
+// ── Dropdown config panel ─────────────────────────────────────────────────────
+const DEFAULT_OPTIONS = {
+  container_sizes: ['8ft','20ft','30ft','45ft','','',''],
+  locations:       ['Back Row','Topper Back','Front Row','Topper Front','','',''],
+  rental_types:    ['Monthly','Weekly','Fixed-term','Annual','Recurring','',''],
+  payment_statuses:['Paid','Overdue','Pending','Direct Debit','Credit Note','',''],
+};
+const DROPDOWN_STORAGE_KEY = 'crm_dropdown_options';
+
+function loadOptions(){
+  try{ return JSON.parse(localStorage.getItem(DROPDOWN_STORAGE_KEY)) || DEFAULT_OPTIONS; }
+  catch{ return DEFAULT_OPTIONS; }
+}
+function saveOptions(opts){ localStorage.setItem(DROPDOWN_STORAGE_KEY, JSON.stringify(opts)); }
+
+// Expose globally so ContainerModal can read them
+window.getCRMOptions = loadOptions;
+
+function DropdownConfig({onSaved}){
+  const{showToast}=useApp();
+  const[opts,setOpts]=useState(loadOptions);
+  const set=(key,idx,val)=>setOpts(o=>({...o,[key]:o[key].map((v,i)=>i===idx?val:v)}));
+  const save=()=>{ saveOptions(opts); showToast('Dropdown options saved','success'); if(onSaved)onSaved(opts); };
+  const reset=()=>{ setOpts(DEFAULT_OPTIONS); saveOptions(DEFAULT_OPTIONS); showToast('Reset to defaults','success'); if(onSaved)onSaved(DEFAULT_OPTIONS); };
+
+  const Section=({label,optKey,hint})=>React.createElement('div',{style:{marginBottom:24}},
+    React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
+      React.createElement('div',null,
+        React.createElement('div',{style:{fontSize:13,fontWeight:600,color:'var(--text)'}},label),
+        React.createElement('div',{style:{fontSize:11,color:'var(--text3)',marginTop:2}},hint)
+      )
+    ),
+    React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(180px,1fr))',gap:8}},
+      opts[optKey].map((v,i)=>React.createElement('div',{key:i,style:{display:'flex',alignItems:'center',gap:6}},
+        React.createElement('span',{style:{fontFamily:'var(--mono)',fontSize:10,color:'var(--text3)',minWidth:18,textAlign:'right'}},i+1),
+        React.createElement('input',{
+          type:'text', value:v,
+          placeholder: i < 4 ? '' : `Custom option ${i-3}…`,
+          style:{flex:1},
+          onChange:e=>set(optKey,i,e.target.value)
+        })
+      ))
+    )
+  );
+
+  return React.createElement('div',{className:'settings-card'},
+    React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18}},
+      React.createElement('div',null,
+        React.createElement('h3',{style:{margin:0}},'Dropdown Options'),
+        React.createElement('div',{style:{fontSize:12,color:'var(--text3)',marginTop:3}},'Customise the options that appear in container form dropdowns. Blank fields are hidden.')
+      ),
+      React.createElement('div',{style:{display:'flex',gap:8}},
+        React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:reset},'Reset defaults'),
+        React.createElement('button',{className:'btn btn-primary btn-sm',onClick:save},'Save Changes')
+      )
+    ),
+    React.createElement(Section,{label:'Container Sizes',optKey:'container_sizes',hint:'e.g. 8ft, 20ft, 40ft'}),
+    React.createElement(Section,{label:'Locations',optKey:'locations',hint:'e.g. Back Row, Front Row, Left Side'}),
+    React.createElement(Section,{label:'Rental Types',optKey:'rental_types',hint:'e.g. Monthly, Fixed-term, Annual'}),
+    React.createElement(Section,{label:'Payment Statuses',optKey:'payment_statuses',hint:'e.g. Paid, Overdue, Direct Debit'})
+  );
+}
+
+function SettingsPage(){
+  const{user,showToast}=useApp();
+  const[users,setUsers]=useState([]);
+  const[pwForm,setPwForm]=useState({current:'',next:'',confirm:''});
+  const[pwErr,setPwErr]=useState('');
+  const[newUser,setNewUser]=useState({username:'',password:'',full_name:'',role:'user'});
+  const[nuErr,setNuErr]=useState('');
+  useEffect(()=>{if(user.role==='admin')api('/users').then(setUsers).catch(()=>{})},[]);
+  const changePw=async()=>{
+    if(pwForm.next!==pwForm.confirm){setPwErr('New passwords do not match');return;}
+    try{await api('/auth/change-password',{method:'POST',body:{current_password:pwForm.current,new_password:pwForm.next}});showToast('Password changed','success');setPwForm({current:'',next:'',confirm:''});setPwErr('');}
+    catch(e){setPwErr(e.message);}
+  };
+  const addUser=async()=>{
+    try{const u=await api('/users',{method:'POST',body:newUser});setUsers(us=>[...us,u]);setNewUser({username:'',password:'',full_name:'',role:'user'});setNuErr('');showToast('User added','success');}
+    catch(e){setNuErr(e.message);}
+  };
+  const delUser=async(id)=>{
+    try{await api(`/users/${id}`,{method:'DELETE'});setUsers(us=>us.filter(u=>u.id!==id));}
+    catch(e){showToast(e.message,'error');}
+  };
+  const PwF=(k,label)=>React.createElement('div',{className:'login-field'},
+    React.createElement('label',null,label),
+    React.createElement('input',{type:'password',value:pwForm[k],onChange:e=>setPwForm(f=>({...f,[k]:e.target.value}))})
+  );
+  return React.createElement('div',null,
+    React.createElement(DropdownConfig,null),
+    React.createElement('div',{className:'settings-card'},
+      React.createElement('h3',null,'Change Password'),
+      React.createElement('div',{style:{maxWidth:380}},
+        pwErr&&React.createElement('div',{className:'login-error'},pwErr),
+        PwF('current','Current Password'),
+        PwF('next','New Password'),
+        PwF('confirm','Confirm New Password'),
+        React.createElement('button',{className:'btn btn-primary',onClick:changePw},'Update Password')
+      )
+    ),
+    user.role==='admin'&&React.createElement('div',{className:'settings-card'},
+      React.createElement('h3',null,'Manage Users'),
+      React.createElement('table',{className:'users-table'},
+        React.createElement('thead',null,React.createElement('tr',null,...['Username','Full Name','Role','Created',''].map(h=>React.createElement('th',{key:h},h)))),
+        React.createElement('tbody',null,
+          users.map(u=>React.createElement('tr',{key:u.id},
+            React.createElement('td',null,React.createElement('span',{style:{fontFamily:'var(--mono)',fontSize:12}},u.username)),
+            React.createElement('td',null,u.full_name||'—'),
+            React.createElement('td',null,React.createElement('span',{className:'badge '+(u.role==='admin'?'badge-paid':'badge-dd')},u.role)),
+            React.createElement('td',null,u.created_at?new Date(u.created_at).toLocaleDateString('en-GB'):'—'),
+            React.createElement('td',null,u.id!==user.id&&React.createElement('button',{className:'btn btn-danger btn-sm',onClick:()=>delUser(u.id)},React.createElement(Icon,{name:'trash',size:12})))
+          ))
+        )
+      ),
+      React.createElement('div',{style:{marginTop:20,borderTop:'1px solid var(--border)',paddingTop:16}}),
+      React.createElement('h3',{style:{marginBottom:14}},'Add New User'),
+      nuErr&&React.createElement('div',{className:'login-error',style:{maxWidth:500}},nuErr),
+      React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr auto',gap:10,alignItems:'end',maxWidth:600}},
+        React.createElement('div',null,React.createElement('label',null,'Username'),React.createElement('input',{type:'text',value:newUser.username,onChange:e=>setNewUser(f=>({...f,username:e.target.value}))})),
+        React.createElement('div',null,React.createElement('label',null,'Password'),React.createElement('input',{type:'password',value:newUser.password,onChange:e=>setNewUser(f=>({...f,password:e.target.value}))})),
+        React.createElement('div',null,React.createElement('label',null,'Role'),React.createElement('select',{value:newUser.role,onChange:e=>setNewUser(f=>({...f,role:e.target.value}))},React.createElement('option',{value:'user'},'User'),React.createElement('option',{value:'admin'},'Admin'))),
+        React.createElement('button',{className:'btn btn-primary',onClick:addUser},React.createElement(Icon,{name:'plus',size:14}),'Add')
+      )
+    )
+  );
+}
+
+// ── Login page ────────────────────────────────────────────────────────────────
+function LoginPage({onLogin}){
+  const[u,setU]=useState('');const[p,setP]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
+  const submit=async(e)=>{
+    e.preventDefault();setErr('');setLoading(true);
+    try{const d=await api('/auth/login',{method:'POST',body:{username:u,password:p}});localStorage.setItem('crm_token',d.token);onLogin(d.user);}
+    catch(e){setErr(e.message);}finally{setLoading(false);}
+  };
+  return React.createElement('div',{className:'login-wrap'},
+    React.createElement('div',{className:'login-card'},
+      React.createElement('div',{className:'login-logo'},
+        React.createElement('div',{className:'login-logo-mark'},'Storage Management'),
+        React.createElement('div',{className:'login-logo-name'},'Container',React.createElement('span',null,'CRM'))
+      ),
+      React.createElement('h2',null,'Sign in'),
+      React.createElement('p',null,'Enter your credentials to access the CRM'),
+      err&&React.createElement('div',{className:'login-error'},err),
+      React.createElement('form',{onSubmit:submit},
+        React.createElement('div',{className:'login-field'},
+          React.createElement('label',null,'Username'),
+          React.createElement('input',{type:'text',value:u,onChange:e=>setU(e.target.value),autoFocus:true,autoComplete:'username'})
+        ),
+        React.createElement('div',{className:'login-field'},
+          React.createElement('label',null,'Password'),
+          React.createElement('input',{type:'password',value:p,onChange:e=>setP(e.target.value),autoComplete:'current-password'})
+        ),
+        React.createElement('button',{type:'submit',className:'login-btn',disabled:loading},loading?'Signing in…':'Sign In')
+      ),
+      React.createElement('div',{className:'login-hint'},'Default: admin / admin123')
+    )
+  );
+}
+
+// ── App shell ─────────────────────────────────────────────────────────────────
+function App(){
+  const[user,setUser]=useState(null);
+  const[page,setPage]=useState('dashboard');
+  const[toast,setToast]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const showToast=(msg,type='success')=>setToast({msg,type,id:Date.now()});
+  useEffect(()=>{
+    const t=localStorage.getItem('crm_token');
+    if(t)api('/auth/me').then(u=>{setUser(u);setLoading(false);}).catch(()=>{localStorage.removeItem('crm_token');setLoading(false);});
+    else setLoading(false);
+  },[]);
+  const logout=()=>{localStorage.removeItem('crm_token');setUser(null);};
+  if(loading)return React.createElement('div',{className:'login-wrap'},React.createElement('span',{className:'spinner'}));
+  if(!user)return React.createElement(AppCtx.Provider,{value:{showToast}},React.createElement(LoginPage,{onLogin:u=>{setUser(u)}}));
+  const navItems=[
+    {id:'dashboard',icon:'dashboard',label:'Dashboard'},
+    {id:'containers',icon:'containers',label:'Containers'},
+    {id:'history',icon:'archive',label:'Rental History'},
+    {id:'settings',icon:'settings',label:'Settings'},
+  ];
+  const pageTitles={dashboard:['Dashboard','Overview & key metrics'],containers:['Containers','Manage all storage units & customers'],history:['Rental History','Archived tenant records'],settings:['Settings','Account & user management']};
+  const pageContent={
+    dashboard:React.createElement('div',{style:{flex:1,overflowY:'auto',padding:'24px'}},React.createElement(DashboardPage)),
+    containers:React.createElement(ContainersPage),
+    history:React.createElement(HistoryPage),
+    settings:React.createElement('div',{style:{flex:1,overflowY:'auto',padding:'24px'}},React.createElement(SettingsPage)),
+  };
+  return React.createElement(AppCtx.Provider,{value:{user,showToast}},
+    React.createElement('div',{className:'app-shell'},
+      React.createElement('nav',{className:'sidebar'},
+        React.createElement('div',{className:'sidebar-logo'},
+          React.createElement('div',{className:'logo-mark'},'Storage Management'),
+          React.createElement('div',{className:'logo-name'},'Container',React.createElement('span',null,'CRM'))
+        ),
+        React.createElement('div',{className:'sidebar-nav'},
+          React.createElement('div',{className:'nav-section'},'Menu'),
+          ...navItems.map(item=>React.createElement('div',{key:item.id,className:'nav-item '+(page===item.id?'active':''),onClick:()=>setPage(item.id)},
+            React.createElement(Icon,{name:item.icon,size:15}),item.label
+          )),
+          React.createElement('div',{className:'nav-item',onClick:logout,style:{marginTop:8}},React.createElement(Icon,{name:'logout',size:15}),'Sign Out')
+        ),
+        React.createElement('div',{className:'sidebar-footer'},
+          React.createElement('div',{className:'user-pill'},
+            React.createElement('div',{className:'avatar'},(user.username||'?')[0].toUpperCase()),
+            React.createElement('div',{className:'user-info'},
+              React.createElement('div',{className:'user-name'},user.full_name||user.username),
+              React.createElement('div',{className:'user-role'},user.role)
+            )
+          )
+        )
+      ),
+      React.createElement('main',{className:'main'},
+        React.createElement('div',{className:'topbar'},
+          React.createElement('div',null,
+            React.createElement('div',{className:'page-title'},pageTitles[page][0]),
+            React.createElement('div',{className:'page-subtitle'},pageTitles[page][1])
+          )
+        ),
+        React.createElement('div',{className:'content'},pageContent[page])
+      )
+    ),
+    toast&&React.createElement(Toast,{key:toast.id,msg:toast.msg,type:toast.type,onDone:()=>setToast(null)})
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
