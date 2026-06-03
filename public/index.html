@@ -1833,23 +1833,22 @@ const DEFAULT_OPTIONS = {
   lead_sources:      ['Social Media','Google','Passing By','Referral','Phone Enquiry','Website',''],
   prospect_statuses: ['New','Contacted','Interested','Converted','Not Interested',''],
 };
-const DROPDOWN_STORAGE_KEY = 'crm_dropdown_options';
-
-function loadOptions(){
-  try{ return JSON.parse(localStorage.getItem(DROPDOWN_STORAGE_KEY)) || DEFAULT_OPTIONS; }
-  catch{ return DEFAULT_OPTIONS; }
+window._crmOptions = null;
+window.getCRMOptions = () => window._crmOptions || DEFAULT_OPTIONS;
+window.setCRMOptions = (opts) => { window._crmOptions = opts; };
+// Settings loaded from API on login, cached in memory
+function loadOptions(){ return window.getCRMOptions(); }
+async function saveOptions(opts){
+  window.setCRMOptions(opts);
+  try{ await api('/settings',{method:'PUT',body:opts}); }catch(e){ console.warn('Settings save:',e.message); }
 }
-function saveOptions(opts){ localStorage.setItem(DROPDOWN_STORAGE_KEY, JSON.stringify(opts)); }
-
-// Expose globally so ContainerModal can read them
-window.getCRMOptions = loadOptions;
 
 function DropdownConfig({onSaved}){
   const{showToast}=useApp();
-  const[opts,setOpts]=useState(loadOptions);
+  const[opts,setOpts]=useState(()=>window.getCRMOptions());
   const set=(key,idx,val)=>setOpts(o=>({...o,[key]:o[key].map((v,i)=>i===idx?val:v)}));
-  const save=()=>{ saveOptions(opts); showToast('Dropdown options saved','success'); if(onSaved)onSaved(opts); };
-  const reset=()=>{ setOpts(DEFAULT_OPTIONS); saveOptions(DEFAULT_OPTIONS); showToast('Reset to defaults','success'); if(onSaved)onSaved(DEFAULT_OPTIONS); };
+  const save=async()=>{ await saveOptions(opts); showToast('Dropdown options saved','success'); if(onSaved)onSaved(opts); };
+  const reset=async()=>{ setOpts(DEFAULT_OPTIONS); await saveOptions(DEFAULT_OPTIONS); showToast('Reset to defaults','success'); if(onSaved)onSaved(DEFAULT_OPTIONS); };
 
   const Section=({label,optKey,hint})=>React.createElement('div',{style:{marginBottom:24}},
     React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}},
@@ -1919,6 +1918,7 @@ function SettingsPage(){
     React.createElement('input',{type:'password',value:pwForm[k],onChange:e=>setPwForm(f=>({...f,[k]:e.target.value}))})
   );
   return React.createElement('div',null,
+    React.createElement(BillingCard),
     React.createElement(DropdownConfig,null),
     React.createElement('div',{className:'settings-card'},
       React.createElement('h3',null,'Change Password'),
@@ -1958,11 +1958,107 @@ function SettingsPage(){
 }
 
 // ── Login page ────────────────────────────────────────────────────────────────
-function LoginPage({onLogin}){
+
+function BillingCard(){
+  const{company,showToast}=useApp();
+  const[loading,setLoading]=useState(false);
+  const openCheckout=async()=>{
+    setLoading(true);
+    try{const r=await api('/billing/checkout',{method:'POST'});window.location.href=r.url;}
+    catch(e){showToast(e.message,'error');setLoading(false);}
+  };
+  const openPortal=async()=>{
+    setLoading(true);
+    try{const r=await api('/billing/portal',{method:'POST'});window.location.href=r.url;}
+    catch(e){showToast(e.message,'error');setLoading(false);}
+  };
+  if(!company)return null;
+  const daysLeft=company.trial_ends_at
+    ?Math.max(0,Math.ceil((new Date(company.trial_ends_at)-new Date())/(1000*60*60*24))):0;
+  return React.createElement('div',{className:'settings-card'},
+    React.createElement('div',{className:'settings-card-title'},'Subscription & Billing'),
+    React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:12}},
+      React.createElement('div',null,
+        React.createElement('div',{style:{fontSize:13,color:'var(--text2)',marginBottom:4}},
+          'Company: ',React.createElement('strong',{style:{color:'var(--text)'}},company&&company.name)
+        ),
+        React.createElement('div',{style:{fontSize:13,color:'var(--text2)'}},
+          'Plan: ',React.createElement('span',{style:{
+            fontWeight:700,
+            color:company.plan==='active'?'var(--green)':company.plan==='suspended'?'var(--red)':'var(--amber)'
+          }},company.plan==='active'?'Active':company.plan==='suspended'?'Suspended':'Free Trial ('+daysLeft+' days left)')
+        )
+      ),
+      React.createElement('div',{style:{display:'flex',gap:8}},
+        company.plan!=='active'&&React.createElement('button',{className:'btn btn-primary btn-sm',onClick:openCheckout,disabled:loading},
+          loading?'Loading...':'Upgrade to Pro'
+        ),
+        company.plan==='active'&&React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:openPortal,disabled:loading},
+          loading?'Loading...':'Manage Billing'
+        )
+      )
+    )
+  );
+}
+
+function SignupPage({onSignup,onBack}){
+  const[form,setForm]=useState({company_name:'',username:'',password:'',full_name:''});
+  const[err,setErr]=useState('');
+  const[loading,setLoading]=useState(false);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const submit=async e=>{
+    e.preventDefault();
+    if(!form.company_name.trim())return setErr('Company name is required');
+    if(!form.username.trim())return setErr('Username is required');
+    if(form.password.length<8)return setErr('Password must be at least 8 characters');
+    setLoading(true);setErr('');
+    try{
+      const d=await api('/signup',{method:'POST',body:form});
+      localStorage.setItem('crm_token',d.token);
+      onSignup(d.user,d.company);
+    }catch(e){setErr(e.message);}
+    finally{setLoading(false);}
+  };
+  return React.createElement('div',{className:'login-wrap'},
+    React.createElement('div',{className:'login-card',style:{maxWidth:440}},
+      React.createElement('div',{className:'login-logo'},
+        React.createElement('div',{className:'login-logo-mark'},'StoreCRM'),
+        React.createElement('div',{className:'login-tagline'},'Start your free 14-day trial')
+      ),
+      err&&React.createElement('div',{className:'login-error'},err),
+      React.createElement('form',{onSubmit:submit},
+        React.createElement('div',{className:'form-group',style:{marginBottom:14}},
+          React.createElement('label',null,'Storage Business Name'),
+          React.createElement('input',{type:'text',placeholder:'e.g. Acme Self Storage',value:form.company_name,onChange:e=>set('company_name',e.target.value),autoFocus:true})
+        ),
+        React.createElement('div',{className:'form-group',style:{marginBottom:14}},
+          React.createElement('label',null,'Your Name'),
+          React.createElement('input',{type:'text',placeholder:'Full name',value:form.full_name,onChange:e=>set('full_name',e.target.value)})
+        ),
+        React.createElement('div',{className:'form-group',style:{marginBottom:14}},
+          React.createElement('label',null,'Username'),
+          React.createElement('input',{type:'text',placeholder:'Choose a username',value:form.username,onChange:e=>set('username',e.target.value.toLowerCase()),autoCapitalize:'none'})
+        ),
+        React.createElement('div',{className:'form-group',style:{marginBottom:20}},
+          React.createElement('label',null,'Password',React.createElement('span',{style:{fontWeight:400,color:'var(--text3)',marginLeft:4}},'(min 8 characters)')),
+          React.createElement('input',{type:'password',placeholder:'Password',value:form.password,onChange:e=>set('password',e.target.value)})
+        ),
+        React.createElement('button',{type:'submit',className:'btn btn-primary',style:{width:'100%',justifyContent:'center',padding:'10px'},disabled:loading},
+          loading?'Creating account...':'Create Free Account')
+      ),
+      React.createElement('div',{style:{marginTop:18,textAlign:'center',fontSize:12,color:'var(--text2)'}},
+        'Already have an account? ',
+        React.createElement('span',{style:{color:'var(--blue)',cursor:'pointer',fontWeight:600},onClick:onBack},'Sign in')
+      )
+    )
+  );
+}
+
+function LoginPage({onLogin,onShowSignup}){
   const[u,setU]=useState('');const[p,setP]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
   const submit=async(e)=>{
     e.preventDefault();setErr('');setLoading(true);
-    try{const d=await api('/auth/login',{method:'POST',body:{username:u,password:p}});localStorage.setItem('crm_token',d.token);onLogin(d.user);}
+    try{const d=await api('/auth/login',{method:'POST',body:{username:u,password:p}});localStorage.setItem('crm_token',d.token);onLogin(d.user,d.company);}
     catch(e){setErr(e.message);}finally{setLoading(false);}
   };
   return React.createElement('div',{className:'login-wrap'},
@@ -1985,7 +2081,10 @@ function LoginPage({onLogin}){
         ),
         React.createElement('button',{type:'submit',className:'login-btn',disabled:loading},loading?'Signing in…':'Sign In')
       ),
-      React.createElement('div',{className:'login-hint'},'Default: admin / admin123')
+      React.createElement('div',{style:{marginTop:18,textAlign:'center',fontSize:12,color:'var(--text2)'}},
+        'New storage business? ',
+        React.createElement('span',{style:{color:'var(--blue)',cursor:'pointer',fontWeight:600},onClick:onShowSignup},'Create a free account')
+      )
     )
   );
 }
@@ -1993,21 +2092,49 @@ function LoginPage({onLogin}){
 // ── App shell ─────────────────────────────────────────────────────────────────
 function App(){
   const[user,setUser]=useState(null);
+  const[company,setCompany]=useState(null);
   const[page,setPage]=useState('dashboard');
   const[selectedCustomer,setSelectedCustomer]=useState(null);
   const[toast,setToast]=useState(null);
   const[loading,setLoading]=useState(true);
+  const[showSignup,setShowSignup]=useState(false);
   const showToast=(msg,type='success')=>setToast({msg,type,id:Date.now()});
+
+  const loadSettings=async()=>{
+    try{const s=await api('/settings');window.setCRMOptions(s);}catch(e){}
+  };
+
   useEffect(()=>{
     const t=localStorage.getItem('crm_token');
-    if(t)api('/auth/me').then(u=>{setUser(u);setLoading(false);}).catch(()=>{localStorage.removeItem('crm_token');setLoading(false);});
-    else setLoading(false);
+    if(t){
+      api('/auth/me')
+        .then(u=>{
+          setUser(u);
+          setCompany({id:u.company_id,name:u.company_name,plan:u.plan,trial_ends_at:u.trial_ends_at});
+          return loadSettings();
+        })
+        .then(()=>setLoading(false))
+        .catch(()=>{localStorage.removeItem('crm_token');setLoading(false);});
+    } else setLoading(false);
   },[]);
-  const logout=()=>{localStorage.removeItem('crm_token');setUser(null);};
+
+  const handleLogin=(u,co)=>{setUser(u);setCompany(co);loadSettings();};
+  const handleSignup=(u,co)=>{setUser(u);setCompany(co);loadSettings();};
+  const logout=()=>{localStorage.removeItem('crm_token');setUser(null);setCompany(null);window._crmOptions=null;};
   const goCustomer=name=>{setSelectedCustomer(name);setPage('customers');};
-  const backToCustomers=()=>{setSelectedCustomer(null);};
+  const backToCustomers=()=>setSelectedCustomer(null);
+
   if(loading)return React.createElement('div',{className:'login-wrap'},React.createElement('span',{className:'spinner'}));
-  if(!user)return React.createElement(AppCtx.Provider,{value:{showToast}},React.createElement(LoginPage,{onLogin:u=>{setUser(u)}}));
+
+  if(!user){
+    if(showSignup)return React.createElement(AppCtx.Provider,{value:{showToast}},
+      React.createElement(SignupPage,{onSignup:handleSignup,onBack:()=>setShowSignup(false)})
+    );
+    return React.createElement(AppCtx.Provider,{value:{showToast}},
+      React.createElement(LoginPage,{onLogin:handleLogin,onShowSignup:()=>setShowSignup(true)})
+    );
+  }
+
   const navItems=[
     {id:'dashboard',icon:'dashboard',label:'Dashboard'},
     {id:'containers',icon:'containers',label:'Containers'},
@@ -2017,8 +2144,16 @@ function App(){
     {id:'history',icon:'archive',label:'Rental History'},
     {id:'settings',icon:'settings',label:'Settings'},
   ];
+
   const pageTitle=page==='customers'&&selectedCustomer?[selectedCustomer,'Customer record']:
-    {dashboard:['Dashboard','Overview & key metrics'],containers:['Containers','Manage all storage units & customers'],customers:['Customers','All tenants & contacts'],prospects:['Prospects','Track leads & prospective customers'],income:['Income','Monthly payment itemisation by customer'],history:['Rental History','Archived tenant records'],settings:['Settings','Account & user management']}[page]||['',''];
+    {dashboard:['Dashboard','Overview & key metrics'],
+     containers:['Containers','Manage all storage units & customers'],
+     customers:['Customers','All tenants & contacts'],
+     prospects:['Prospects','Track leads & prospective customers'],
+     income:['Income','Monthly payment itemisation by customer'],
+     history:['Rental History','Archived tenant records'],
+     settings:['Settings','Account & user management']}[page]||['',''];
+
   const pageContent={
     dashboard:React.createElement('div',{style:{flex:1,overflowY:'auto',padding:'24px'}},React.createElement(DashboardPage)),
     containers:React.createElement(ContainersPage),
@@ -2030,19 +2165,44 @@ function App(){
     history:React.createElement(HistoryPage),
     settings:React.createElement('div',{style:{flex:1,overflowY:'auto',padding:'24px'}},React.createElement(SettingsPage)),
   };
-  return React.createElement(AppCtx.Provider,{value:{user,showToast}},
+
+  const trialBanner=()=>{
+    if(!company||company.plan==='active')return null;
+    const daysLeft=company.trial_ends_at
+      ?Math.max(0,Math.ceil((new Date(company.trial_ends_at)-new Date())/(1000*60*60*24))):0;
+    if(company.plan==='suspended')return React.createElement('div',{style:{
+      background:'#fee2e2',color:'#dc2626',padding:'8px 20px',fontSize:12,fontWeight:600,
+      display:'flex',alignItems:'center',gap:8,borderBottom:'1px solid #fca5a5',flexShrink:0
+    }},React.createElement(Icon,{name:'warn',size:14}),'Your account has been suspended. ',
+      React.createElement('span',{style:{textDecoration:'underline',cursor:'pointer'},onClick:()=>setPage('settings')},'Update billing'));
+    return React.createElement('div',{style:{
+      background:daysLeft<=3?'#fee2e2':daysLeft<=7?'#fef3c7':'#eff6ff',
+      color:daysLeft<=3?'#dc2626':daysLeft<=7?'#b45309':'#1d4ed8',
+      padding:'6px 20px',fontSize:12,fontWeight:600,
+      display:'flex',alignItems:'center',gap:8,
+      borderBottom:'1px solid '+(daysLeft<=3?'#fca5a5':daysLeft<=7?'#fde68a':'#bfdbfe'),flexShrink:0
+    }},
+      'Free trial: ',daysLeft,' day'+(daysLeft!==1?'s':''),' remaining. ',
+      React.createElement('span',{style:{marginLeft:6,textDecoration:'underline',cursor:'pointer'},onClick:()=>setPage('settings')},'Upgrade now')
+    );
+  };
+
+  return React.createElement(AppCtx.Provider,{value:{user,company,showToast}},
     React.createElement('div',{className:'app-shell'},
       React.createElement('nav',{className:'sidebar'},
         React.createElement('div',{className:'sidebar-logo'},
-          React.createElement('div',{className:'logo-mark'},'Storage Management'),
+          React.createElement('div',{className:'logo-mark'},company&&company.name||'StoreCRM'),
           React.createElement('div',{className:'logo-name'},'Container',React.createElement('span',null,'CRM'))
         ),
         React.createElement('div',{className:'sidebar-nav'},
           React.createElement('div',{className:'nav-section'},'Menu'),
-          ...navItems.map(item=>React.createElement('div',{key:item.id,className:'nav-item '+(page===item.id?'active':''),onClick:()=>{setPage(item.id);if(item.id!=='customers')setSelectedCustomer(null);}},
-            React.createElement(Icon,{name:item.icon,size:15}),item.label
-          )),
-          React.createElement('div',{className:'nav-item',onClick:logout,style:{marginTop:8}},React.createElement(Icon,{name:'logout',size:15}),'Sign Out')
+          ...navItems.map(item=>React.createElement('div',{
+            key:item.id,
+            className:'nav-item '+(page===item.id?'active':''),
+            onClick:()=>{setPage(item.id);if(item.id!=='customers')setSelectedCustomer(null);}
+          },React.createElement(Icon,{name:item.icon,size:15}),item.label)),
+          React.createElement('div',{className:'nav-item',onClick:logout,style:{marginTop:8}},
+            React.createElement(Icon,{name:'logout',size:15}),'Sign Out')
         ),
         React.createElement('div',{className:'sidebar-footer'},
           React.createElement('div',{className:'user-pill'},
@@ -2055,6 +2215,7 @@ function App(){
         )
       ),
       React.createElement('main',{className:'main'},
+        trialBanner(),
         React.createElement('div',{className:'topbar'},
           React.createElement('div',null,
             React.createElement('div',{className:'page-title'},pageTitle[0]),
@@ -2067,7 +2228,8 @@ function App(){
     toast&&React.createElement(Toast,{key:toast.id,msg:toast.msg,type:toast.type,onDone:()=>setToast(null)})
   );
 }
-ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+
+ReactDOM.render(React.createElement(App),document.getElementById('root'));
 </script>
 </body>
 </html>
