@@ -1,6 +1,6 @@
 {
   "name": "storage-crm",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Container Self-Storage CRM (multi-tenant SaaS)",
   "main": "server.js",
   "scripts": {
@@ -17,6 +17,7 @@
     "pg": "^8.11.3"
   },
   "optionalDependencies": {
+    "resend": "^3.0.0",
     "stripe": "^14.0.0"
   }
 }
