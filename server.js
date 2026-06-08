@@ -20,6 +20,16 @@ if (STRIPE_SECRET) {
   catch { console.warn('stripe package not installed — billing disabled'); }
 }
 
+// Resend email is optional — only active when RESEND_API_KEY is set
+const RESEND_API_KEY = process.env.RESEND_API_KEY || null;
+const FROM_EMAIL = process.env.FROM_EMAIL || 'notifications@example.com';
+
+let resendClient = null;
+if (RESEND_API_KEY) {
+  try { const { Resend } = require('resend'); resendClient = new Resend(RESEND_API_KEY); }
+  catch { console.warn('resend package not installed — email disabled'); }
+}
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -113,7 +123,20 @@ async function initDb() {
       updated_at  TIMESTAMPTZ DEFAULT NOW()
     );
 
-    -- ── Rental History ─────────────────────────────────────────────────────
+    -- ── Prospect Emails (log of sent emails) ──────────────────────────────
+    CREATE TABLE IF NOT EXISTS prospect_emails (
+      id          SERIAL PRIMARY KEY,
+      company_id  INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+      to_email    TEXT NOT NULL,
+      reply_to    TEXT DEFAULT '',
+      subject     TEXT NOT NULL,
+      body        TEXT NOT NULL,
+      sent_by     TEXT DEFAULT '',
+      sent_at     TIMESTAMPTZ DEFAULT NOW()
+    );
+
+        -- ── Rental History ─────────────────────────────────────────────────────
     CREATE TABLE IF NOT EXISTS rental_history (
       id                  SERIAL PRIMARY KEY,
       company_id          INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -161,6 +184,8 @@ async function initDb() {
     // Ensure updated_at exists on containers
     `ALTER TABLE IF EXISTS containers      ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMPTZ   DEFAULT NOW()`,
     `ALTER TABLE IF EXISTS containers      ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ   DEFAULT NOW()`,
+    // prospect_emails table (added in v17) — safe to run repeatedly
+    `CREATE TABLE IF NOT EXISTS prospect_emails (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, prospect_id INTEGER NOT NULL, to_email TEXT NOT NULL, reply_to TEXT DEFAULT '', subject TEXT NOT NULL, body TEXT NOT NULL, sent_by TEXT DEFAULT '', sent_at TIMESTAMPTZ DEFAULT NOW())`,
     // Ensure prospects has all fields
     `ALTER TABLE IF EXISTS prospects       ADD COLUMN IF NOT EXISTS address1      TEXT DEFAULT ''`,
     `ALTER TABLE IF EXISTS prospects       ADD COLUMN IF NOT EXISTS address2      TEXT DEFAULT ''`,
@@ -1063,6 +1088,93 @@ app.get('/api/income', authRequired, async (req, res) => {
         total_pending:  rows.filter(r => r.payment_status==='Pending').reduce((s,r) => s+r.effective_rate, 0),
         count: rows.length, daily,
       }
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Prospect Emails ───────────────────────────────────────────────────────────
+
+// GET  /api/prospects/:id/emails  — list all emails sent to this prospect
+app.get('/api/prospects/:id/emails', authRequired, async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT * FROM prospect_emails WHERE prospect_id=$1 AND company_id=$2 ORDER BY sent_at DESC`,
+      [req.params.id, req.user.company_id]
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/prospects/:id/email   — send an email and log it
+app.post('/api/prospects/:id/email', authRequired, async (req, res) => {
+  try {
+    const cid = req.user.company_id;
+    const { subject, body } = req.body || {};
+    if (!subject?.trim() || !body?.trim())
+      return res.status(400).json({ error: 'Subject and body are required' });
+
+    // Fetch the prospect (must belong to this company)
+    const { rows: pRows } = await db.query(
+      'SELECT * FROM prospects WHERE id=$1 AND company_id=$2',
+      [req.params.id, cid]
+    );
+    if (!pRows[0]) return res.status(404).json({ error: 'Prospect not found' });
+    const prospect = pRows[0];
+    if (!prospect.email?.trim())
+      return res.status(400).json({ error: 'This prospect has no email address' });
+
+    // Fetch the company's reply-to email from settings
+    const { rows: sRows } = await db.query(
+      'SELECT settings FROM company_settings WHERE company_id=$1', [cid]
+    );
+    const settings = sRows[0]?.settings || {};
+    const replyTo = settings.reply_to_email || '';
+
+    // Fetch company name for the From display name
+    const { rows: coRows } = await db.query(
+      'SELECT name FROM companies WHERE id=$1', [cid]
+    );
+    const companyName = coRows[0]?.name || 'Storage CRM';
+
+    // Send via Resend (if configured)
+    let emailSent = false;
+    let sendError = null;
+    if (resendClient) {
+      try {
+        const emailPayload = {
+          from: `${companyName} <${FROM_EMAIL}>`,
+          to: [prospect.email.trim()],
+          subject: subject.trim(),
+          text: body.trim(),
+        };
+        if (replyTo) emailPayload.reply_to = replyTo;
+        await resendClient.emails.send(emailPayload);
+        emailSent = true;
+      } catch (e) {
+        sendError = e.message;
+        console.error('Resend error:', e.message);
+      }
+    } else {
+      // Email not configured — log it anyway as a draft/manual record
+      sendError = 'Email sending not configured (RESEND_API_KEY not set)';
+    }
+
+    // Log the email regardless of whether it actually sent
+    const { rows: logRows } = await db.query(
+      `INSERT INTO prospect_emails (company_id,prospect_id,to_email,reply_to,subject,body,sent_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [cid, req.params.id, prospect.email.trim(), replyTo,
+       subject.trim(), body.trim(), req.user.username]
+    );
+
+    if (!emailSent && resendClient) {
+      return res.status(500).json({ error: sendError, logged: logRows[0] });
+    }
+    res.status(201).json({
+      success: true,
+      sent: emailSent,
+      logged: logRows[0],
+      note: emailSent ? null : sendError
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
