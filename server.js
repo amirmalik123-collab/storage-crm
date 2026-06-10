@@ -101,6 +101,7 @@ async function initDb() {
       intro_months        INTEGER DEFAULT NULL,
       payment_status      TEXT DEFAULT 'Pending',
       notes               TEXT DEFAULT '',
+      converted_from_prospect_id INTEGER DEFAULT NULL,
       created_at          TIMESTAMPTZ DEFAULT NOW(),
       updated_at          TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE (company_id, container_number)
@@ -203,6 +204,8 @@ async function initDb() {
     `CREATE TABLE IF NOT EXISTS prospect_emails (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, prospect_id INTEGER NOT NULL, to_email TEXT NOT NULL, reply_to TEXT DEFAULT '', subject TEXT NOT NULL, body TEXT NOT NULL, sent_by TEXT DEFAULT '', sent_at TIMESTAMPTZ DEFAULT NOW())`,
     // payments table (added in v18)
     `CREATE TABLE IF NOT EXISTS payments (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, container_id INTEGER, container_number TEXT NOT NULL DEFAULT '', customer_name TEXT NOT NULL DEFAULT '', amount NUMERIC(10,2) NOT NULL DEFAULT 0, payment_date DATE NOT NULL DEFAULT CURRENT_DATE, method TEXT DEFAULT 'Bank Transfer', notes TEXT DEFAULT '', recorded_by TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW())`,
+    // converted_from_prospect_id on containers (added in v19)
+    `ALTER TABLE IF EXISTS containers ADD COLUMN IF NOT EXISTS converted_from_prospect_id INTEGER DEFAULT NULL`,
     // Ensure prospects has all fields
     `ALTER TABLE IF EXISTS prospects       ADD COLUMN IF NOT EXISTS address1      TEXT DEFAULT ''`,
     `ALTER TABLE IF EXISTS prospects       ADD COLUMN IF NOT EXISTS address2      TEXT DEFAULT ''`,
@@ -765,8 +768,8 @@ app.post('/api/containers', authRequired, async (req, res) => {
       `INSERT INTO containers
         (company_id,container_number,container_size,location,order_date,start_date,end_date,
          customer_name,joining_email_sent,id_check,phone,email,address1,address2,
-         postcode,contract_signed,insurance,monthly_rate,intro_rate,intro_months,payment_status,notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+         postcode,contract_signed,insurance,monthly_rate,intro_rate,intro_months,payment_status,notes,converted_from_prospect_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
        RETURNING *`,
       [cid, d.container_number, d.container_size||'20ft', d.location||'Back Row',
        orNull(d.order_date), orNull(d.start_date), orNull(d.end_date),
@@ -775,8 +778,16 @@ app.post('/api/containers', authRequired, async (req, res) => {
        !!d.contract_signed, !!d.insurance, parseFloat(d.monthly_rate)||0,
        orNull(d.intro_rate) ? parseFloat(d.intro_rate) : null,
        orNull(d.intro_months) ? parseInt(d.intro_months) : null,
-       d.payment_status||'Pending', d.notes||'']
+       d.payment_status||'Pending', d.notes||'',
+       d.converted_from_prospect_id ? parseInt(d.converted_from_prospect_id) : null]
     );
+    // If converted from a prospect, mark that prospect as Converted
+    if (d.converted_from_prospect_id) {
+      await db.query(
+        `UPDATE prospects SET status='Converted' WHERE id=$1 AND company_id=$2`,
+        [d.converted_from_prospect_id, cid]
+      );
+    }
     res.status(201).json(enrichContainer(rows[0]));
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'Container number already exists' });
@@ -1274,4 +1285,3 @@ initDb()
     console.log(`   Demo login: admin / admin123\n`);
   }))
   .catch(err => { console.error('DB init failed:', err.message); process.exit(1); });
-
