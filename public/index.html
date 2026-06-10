@@ -1005,9 +1005,14 @@ function CustomersPage({onSelect}){
 function CustomerDetailPage({name,onBack}){
   const[data,setData]=useState(null);
   const[err,setErr]=useState('');
+  const[pmtHistory,setPmtHistory]=useState(null);
   useEffect(()=>{
-    setData(null);setErr('');
-    api(`/customers/detail?name=${encodeURIComponent(name)}`).then(setData).catch(e=>setErr(e.message));
+    setData(null);setErr('');setPmtHistory(null);
+    api(`/customers/detail?name=${encodeURIComponent(name)}`).then(d=>{
+      setData(d);
+      // Load payment history for this customer
+      api(`/payments?customer_name=${encodeURIComponent(name)}`).then(setPmtHistory).catch(()=>setPmtHistory([]));
+    }).catch(e=>setErr(e.message));
   },[name]);
   const initials=name.split(' ').map(p=>p[0]||'').slice(0,2).join('').toUpperCase();
   const SkRow=(cols)=>React.createElement('tr',null,[...Array(cols)].map((_,i)=>React.createElement('td',{key:i},React.createElement('span',{className:'skel',style:{width:'70%'}},'\u00a0'))));
@@ -1114,10 +1119,126 @@ function CustomerDetailPage({name,onBack}){
           )
         )
       )
+    ),
+    // Payment History
+    React.createElement('div',{className:'detail-section'},
+      React.createElement('div',{className:'detail-section-title'},
+        React.createElement(Icon,{name:'currency',size:12}),
+        'Payment History'
+      ),
+      React.createElement('div',{style:{border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',overflow:'hidden',marginTop:12}},
+        React.createElement('table',null,
+          React.createElement('thead',null,
+            React.createElement('tr',null,
+              ['Date','Amount','Method','Container','Notes','Recorded By'].map(h=>
+                React.createElement('th',{key:h,style:{whiteSpace:'nowrap'}},h)
+              )
+            )
+          ),
+          React.createElement('tbody',null,
+            pmtHistory===null?[...Array(2)].map((_,i)=>React.createElement('tr',{key:i},
+              [...Array(6)].map((_,j)=>React.createElement('td',{key:j},React.createElement('span',{className:'skel',style:{width:'70%'}},'\u00a0')))
+            )):
+            pmtHistory.length===0?React.createElement('tr',null,
+              React.createElement('td',{colSpan:6,style:{textAlign:'center',padding:'28px 0',color:'var(--text3)',fontSize:13}},'No payments recorded yet')
+            ):
+            pmtHistory.map(p=>React.createElement('tr',{key:p.id},
+              React.createElement('td',{style:{fontFamily:'var(--mono)',fontSize:12}},fmt(p.payment_date)),
+              React.createElement('td',{style:{fontFamily:'var(--mono)',fontWeight:700,color:'var(--green)'}},'\u00a3'+parseFloat(p.amount).toFixed(2)),
+              React.createElement('td',{style:{color:'var(--text2)'}},p.method),
+              React.createElement('td',{style:{fontFamily:'var(--mono)',fontSize:12,color:'var(--text2)'}},p.container_number||'\u2014'),
+              React.createElement('td',{style:{color:'var(--text3)',fontSize:12}},p.notes||'\u2014'),
+              React.createElement('td',{style:{color:'var(--text3)',fontSize:11,fontFamily:'var(--mono)'}},p.recorded_by||'\u2014')
+            ))
+          )
+        )
+      )
     )
   );
 }
 
+
+// ── Record Payment Modal ──────────────────────────────────────────────────────
+function RecordPaymentModal({row, onClose, onSaved}){
+  const{showToast}=useApp();
+  const today=new Date().toISOString().split('T')[0];
+  const[form,setForm]=useState({
+    amount: row.effective_rate ? row.effective_rate.toFixed(2) : '',
+    payment_date: today,
+    method: 'Bank Transfer',
+    notes: '',
+  });
+  const[saving,setSaving]=useState(false);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  const save=async()=>{
+    if(!form.amount||parseFloat(form.amount)<=0){showToast('Enter a valid amount','error');return;}
+    if(!form.payment_date){showToast('Select a payment date','error');return;}
+    setSaving(true);
+    try{
+      const payload={
+        container_id: row.src==='active'?row.id:null,
+        container_number: row.container_number,
+        customer_name: row.customer_name,
+        amount: parseFloat(form.amount),
+        payment_date: form.payment_date,
+        method: form.method,
+        notes: form.notes,
+      };
+      const saved=await api('/payments',{method:'POST',body:payload});
+      showToast('Payment recorded','success');
+      onSaved(saved);
+    }catch(e){showToast(e.message,'error');setSaving(false);}
+  };
+
+  const METHODS=['Bank Transfer','Cash','Card','Direct Debit','Standing Order','Other'];
+
+  return React.createElement('div',{className:'overlay',onClick:e=>e.target===e.currentTarget&&onClose()},
+    React.createElement('div',{className:'modal',style:{maxWidth:460}},
+      React.createElement('div',{className:'modal-header'},
+        React.createElement('div',null,
+          React.createElement('div',{className:'modal-title'},'Record Payment'),
+          React.createElement('div',{style:{fontSize:11,color:'var(--text3)',marginTop:2}},
+            row.customer_name+' \u00b7 '+row.container_number
+          )
+        ),
+        React.createElement('button',{className:'modal-close',onClick:onClose},React.createElement(Icon,{name:'close',size:18}))
+      ),
+      React.createElement('div',{className:'modal-body'},
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
+          React.createElement('div',{className:'login-field'},
+            React.createElement('label',null,'Amount (\u00a3)'),
+            React.createElement('input',{type:'number',step:'0.01',min:'0.01',value:form.amount,onChange:e=>set('amount',e.target.value)})
+          ),
+          React.createElement('div',{className:'login-field'},
+            React.createElement('label',null,'Payment Date'),
+            React.createElement('input',{type:'date',value:form.payment_date,onChange:e=>set('payment_date',e.target.value)})
+          )
+        ),
+        React.createElement('div',{className:'login-field'},
+          React.createElement('label',null,'Payment Method'),
+          React.createElement('select',{value:form.method,onChange:e=>set('method',e.target.value)},
+            METHODS.map(m=>React.createElement('option',{key:m,value:m},m))
+          )
+        ),
+        React.createElement('div',{className:'login-field'},
+          React.createElement('label',null,'Notes (optional)'),
+          React.createElement('input',{type:'text',value:form.notes,onChange:e=>set('notes',e.target.value),placeholder:'e.g. Paid via BACS ref 1234'})
+        ),
+        React.createElement('div',{style:{marginTop:4,padding:'10px 12px',background:'var(--surface2)',borderRadius:6,fontSize:12,color:'var(--text3)'}},
+          React.createElement('span',{style:{color:'var(--text2)'}},'Expected this month: '),
+          React.createElement('span',{style:{fontFamily:'var(--mono)',fontWeight:700,color:'var(--text)'}},'\u00a3'+row.effective_rate.toFixed(2))
+        )
+      ),
+      React.createElement('div',{className:'modal-footer'},
+        React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),
+        React.createElement('button',{className:'btn btn-primary',onClick:save,disabled:saving},
+          saving?'Saving\u2026':React.createElement('span',null,React.createElement(Icon,{name:'check',size:13}),' Record Payment')
+        )
+      )
+    )
+  );
+}
 
 // ── Income page ───────────────────────────────────────────────────────────────
 function IncomePage(){
@@ -1128,11 +1249,25 @@ function IncomePage(){
   const[err,setErr]=useState('');
   const[tooltip,setTooltip]=useState(null); // {day, tenants, amount, rect}
   const{sorted:sortedIncome,sortKey:iSK,sortDir:iSD,toggle:iToggle}=useSortedData(data?data.rows:null,'customer_name','asc');
+  const[paymentModal,setPaymentModal]=useState(null);
+  const[payments,setPayments]=useState({}); // keyed by container_id -> latest payment
 
   useEffect(()=>{
-    setData(null);setErr('');
+    setData(null);setErr('');setPayments({});
     api(`/income?year=${year}&month=${month}`)
-      .then(setData)
+      .then(d=>{
+        setData(d);
+        // Load payments for all active containers in this period
+        const ids=d.rows.filter(r=>r.src==='active'&&r.id).map(r=>r.id);
+        if(ids.length){
+          Promise.all(ids.map(id=>api(`/payments?container_id=${id}`).then(ps=>({id,ps})).catch(()=>({id,ps:[]}))))
+            .then(results=>{
+              const map={};
+              results.forEach(({id,ps})=>{ if(ps.length) map[id]=ps; });
+              setPayments(map);
+            });
+        }
+      })
       .catch(e=>{setErr(e.message);setData({rows:[],summary:{total_expected:0,total_paid:0,total_overdue:0,total_pending:0,count:0,daily:{}}});});
   },[year,month]);
 
@@ -1251,8 +1386,8 @@ function IncomePage(){
   };
 
   const SkRow=()=>React.createElement('tr',null,
-    [...Array(8)].map((_,i)=>React.createElement('td',{key:i},
-      React.createElement('span',{className:'skel',style:{width:['55%','30%','25%','35%','30%','35%','30%','25%'][i]}},'\u00a0')
+    [...Array(9)].map((_,i)=>React.createElement('td',{key:i},
+      React.createElement('span',{className:'skel',style:{width:['55%','30%','25%','35%','30%','35%','30%','25%','20%'][i]}},'\u00a0')
     ))
   );
 
@@ -1323,19 +1458,22 @@ function IncomePage(){
             React.createElement(SortableTh,{label:'Effective Rate',sortK:'effective_rate',current:iSK,dir:iSD,onSort:iToggle}),
             React.createElement(SortableTh,{label:'Next Billing',sortK:'next_billing_date',current:iSK,dir:iSD,onSort:iToggle}),
             React.createElement(SortableTh,{label:'Payment Status',sortK:'payment_status',current:iSK,dir:iSD,onSort:iToggle}),
-            React.createElement(SortableTh,{label:'Start Date',sortK:'start_date',current:iSK,dir:iSD,onSort:iToggle})
+            React.createElement(SortableTh,{label:'Start Date',sortK:'start_date',current:iSK,dir:iSD,onSort:iToggle}),
+            React.createElement('th',null,'')
           )
         ),
         React.createElement('tbody',null,
           !data?[...Array(8)].map((_,i)=>React.createElement(SkRow,{key:i})):
           data.rows.length===0?React.createElement('tr',null,
-            React.createElement('td',{colSpan:8,style:{textAlign:'center',padding:'56px 0',color:'var(--text3)'}},
+            React.createElement('td',{colSpan:9,style:{textAlign:'center',padding:'56px 0',color:'var(--text3)'}},
               React.createElement('div',{style:{marginBottom:10,opacity:.3}},React.createElement(Icon,{name:'income',size:32})),
               'No occupied containers for '+periodLabel+'.'
             )
           ):
-          sortedIncome.map((r,i)=>
-            React.createElement('tr',{key:i,style:{
+          sortedIncome.map((r,i)=>{
+            const rowPayments=r.src==='active'&&r.id?payments[r.id]||[]:[];
+            const latestPmt=rowPayments[0];
+            return React.createElement('tr',{key:i,style:{
               background:r.payment_status==='Overdue'?'rgba(220,38,38,.03)':
                          r.payment_status==='Paid'||r.payment_status==='Direct Debit'?'rgba(22,163,74,.03)':''}},
               React.createElement('td',{style:{fontWeight:600,color:'var(--text)'}},r.customer_name),
@@ -1351,12 +1489,32 @@ function IncomePage(){
               React.createElement('td',null,payBadge(r.payment_status)||React.createElement('span',{style:{color:'var(--text3)'}},'—')),
               React.createElement('td',{style:{color:'var(--text3)',fontSize:11,fontFamily:'var(--mono)'}},
                 fmt(r.start_date)+'\u2013'+(r.end_date?fmt(r.end_date):'rolling')
+              ),
+              React.createElement('td',{style:{textAlign:'right',whiteSpace:'nowrap'}},
+                latestPmt&&React.createElement('span',{
+                  style:{fontSize:10,fontFamily:'var(--mono)',color:'var(--green)',marginRight:6},
+                  title:'Last recorded: \u00a3'+latestPmt.amount.toFixed(2)+' on '+latestPmt.payment_date+' ('+latestPmt.method+')'
+                },'\u2713 \u00a3'+parseFloat(latestPmt.amount).toFixed(2)),
+                r.src==='active'&&React.createElement('button',{
+                  className:'btn btn-ghost btn-sm',style:{padding:'3px 8px'},
+                  title:'Record a payment',
+                  onClick:()=>setPaymentModal(r)
+                },React.createElement(Icon,{name:'currency',size:12}))
               )
-            )
-          )
+            );
+          })
         )
       )
-    )
+    ),
+
+    paymentModal&&React.createElement(RecordPaymentModal,{
+      row:paymentModal,
+      onClose:()=>setPaymentModal(null),
+      onSaved:(pmt)=>{
+        setPayments(prev=>({...prev,[paymentModal.id]:[pmt,...(prev[paymentModal.id]||[])]}));
+        setPaymentModal(null);
+      }
+    })
   );
 }
 
@@ -2365,5 +2523,4 @@ ReactDOM.render(React.createElement(App),document.getElementById('root'));
 </script>
 </body>
 </html>
-</body>
-</html>
+
