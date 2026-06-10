@@ -1473,6 +1473,12 @@ function IncomePage(){
           sortedIncome.map((r,i)=>{
             const rowPayments=r.src==='active'&&r.id?payments[r.id]||[]:[];
             const latestPmt=rowPayments[0];
+            // Button shows only when: Pending or Overdue, AND billing date has been reached
+            const todayMidnight=new Date();todayMidnight.setHours(0,0,0,0);
+            const billingDate=r.next_billing_date?new Date(r.next_billing_date):null;
+            const billingReached=billingDate?billingDate<=todayMidnight:false;
+            const awaitingPayment=r.payment_status==='Pending'||r.payment_status==='Overdue';
+            const showRecordBtn=r.src==='active'&&awaitingPayment&&billingReached;
             return React.createElement('tr',{key:i,style:{
               background:r.payment_status==='Overdue'?'rgba(220,38,38,.03)':
                          r.payment_status==='Paid'||r.payment_status==='Direct Debit'?'rgba(22,163,74,.03)':''}},
@@ -1491,11 +1497,11 @@ function IncomePage(){
                 fmt(r.start_date)+'\u2013'+(r.end_date?fmt(r.end_date):'rolling')
               ),
               React.createElement('td',{style:{textAlign:'right',whiteSpace:'nowrap'}},
-                latestPmt&&React.createElement('span',{
+                latestPmt&&r.payment_status==='Paid'&&React.createElement('span',{
                   style:{fontSize:10,fontFamily:'var(--mono)',color:'var(--green)',marginRight:6},
                   title:'Last recorded: \u00a3'+latestPmt.amount.toFixed(2)+' on '+latestPmt.payment_date+' ('+latestPmt.method+')'
                 },'\u2713 \u00a3'+parseFloat(latestPmt.amount).toFixed(2)),
-                r.src==='active'&&React.createElement('button',{
+                showRecordBtn&&React.createElement('button',{
                   className:'btn btn-ghost btn-sm',style:{padding:'3px 8px'},
                   title:'Record a payment',
                   onClick:()=>setPaymentModal(r)
@@ -1511,7 +1517,12 @@ function IncomePage(){
       row:paymentModal,
       onClose:()=>setPaymentModal(null),
       onSaved:(pmt)=>{
+        // Add to payments map so the ✓ indicator can appear
         setPayments(prev=>({...prev,[paymentModal.id]:[pmt,...(prev[paymentModal.id]||[])]}));
+        // Flip that row's payment_status to Paid so badge updates and button disappears
+        setData(prev=>prev?{...prev,rows:prev.rows.map(row=>
+          row.id===paymentModal.id?{...row,payment_status:'Paid'}:row
+        )}:prev);
         setPaymentModal(null);
       }
     })
@@ -2523,4 +2534,3 @@ ReactDOM.render(React.createElement(App),document.getElementById('root'));
 </script>
 </body>
 </html>
-
