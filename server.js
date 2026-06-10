@@ -804,7 +804,9 @@ app.put('/api/containers/:id', authRequired, async (req, res) => {
         end_date=$6,customer_name=$7,joining_email_sent=$8,id_check=$9,phone=$10,
         email=$11,address1=$12,address2=$13,postcode=$14,contract_signed=$15,
         insurance=$16,monthly_rate=$17,intro_rate=$18,intro_months=$19,
-        payment_status=$20,notes=$21,updated_at=NOW()
+        payment_status=$20,notes=$21,
+        converted_from_prospect_id=COALESCE($24,converted_from_prospect_id),
+        updated_at=NOW()
        WHERE id=$22 AND company_id=$23 RETURNING *`,
       [d.container_number, d.container_size, d.location,
        orNull(d.order_date), orNull(d.start_date), orNull(d.end_date),
@@ -813,7 +815,8 @@ app.put('/api/containers/:id', authRequired, async (req, res) => {
        !!d.contract_signed, !!d.insurance, parseFloat(d.monthly_rate)||0,
        orNull(d.intro_rate) ? parseFloat(d.intro_rate) : null,
        orNull(d.intro_months) ? parseInt(d.intro_months) : null,
-       d.payment_status||'Pending', d.notes||'', req.params.id, cid]
+       d.payment_status||'Pending', d.notes||'', req.params.id, cid,
+       d.converted_from_prospect_id ? parseInt(d.converted_from_prospect_id) : null]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
     res.json(enrichContainer(rows[0]));
@@ -1285,3 +1288,4 @@ initDb()
     console.log(`   Demo login: admin / admin123\n`);
   }))
   .catch(err => { console.error('DB init failed:', err.message); process.exit(1); });
+
