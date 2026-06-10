@@ -445,8 +445,9 @@ function ContainerModal({initial,onSave,onClose,onDelete}){
     if(!form.container_number.trim()){setErr('Container number is required');return;}
     setSaving(true);setErr('');
     try{
-      const method=initial?'PUT':'POST';
-      const path=initial?`/containers/${initial.id}`:'/containers';
+      const isEdit=!!(initial&&initial.id);
+      const method=isEdit?'PUT':'POST';
+      const path=isEdit?`/containers/${initial.id}`:'/containers';
       const data=await api(path,{method,body:{...form,start_date:form.start_date||null,end_date:form.end_date||null,order_date:form.order_date||null}});
       onSave(data);
     }catch(e){setErr(e.message);}finally{setSaving(false);}
@@ -471,7 +472,7 @@ function ContainerModal({initial,onSave,onClose,onDelete}){
   return React.createElement('div',{className:'overlay',onClick:e=>{if(e.target===e.currentTarget)onClose()}},
     React.createElement('div',{className:'modal'},
       React.createElement('div',{className:'modal-header'},
-        React.createElement('span',{className:'modal-title'},initial?`Edit Container — ${initial.container_number}`:'Add New Container'),
+        React.createElement('span',{className:'modal-title'},(initial&&initial.id)?`Edit Container — ${initial.container_number}`:'Add New Container'),
         React.createElement('button',{className:'modal-close',onClick:onClose},React.createElement(Icon,{name:'close',size:18}))),
       React.createElement('div',{className:'modal-body'},
         err&&React.createElement('div',{className:'form-error',style:{marginBottom:12}},err),
@@ -519,7 +520,7 @@ function ContainerModal({initial,onSave,onClose,onDelete}){
       ),
       React.createElement('div',{className:'modal-footer'},
         React.createElement('div',{style:{flex:1}},
-          initial&&React.createElement('button',{
+          initial&&initial.id&&React.createElement('button',{
             className:'btn btn-danger',
             onClick:()=>{onDelete(initial);},
           },React.createElement(Icon,{name:'trash',size:14}),'Delete Container')
@@ -772,6 +773,7 @@ function ProspectsPage(){
   const[modal,setModal]=useState(null);
   const[confirmDel,setConfirmDel]=useState(null);
   const[emailModal,setEmailModal]=useState(null);
+  const[convertModal,setConvertModal]=useState(null); // prospect being converted
   const[err,setErr]=useState('');
   const{sorted:sortedProsp,sortKey:pSK,sortDir:pSD,toggle:pToggle}=useSortedData(prospects,'created_at','desc');
 
@@ -872,6 +874,11 @@ function ProspectsPage(){
                   title:'Send email',
                   onClick:e=>{e.stopPropagation();setEmailModal(p);}
                 },React.createElement(Icon,{name:'mail',size:12})),
+                p.status!=='Converted'&&React.createElement('button',{
+                  className:'btn btn-ghost btn-sm',style:{padding:'3px 8px',marginRight:4,color:'var(--green)',borderColor:'var(--green)'},
+                  title:'Convert to customer',
+                  onClick:e=>{e.stopPropagation();setConvertModal(p);}
+                },React.createElement(Icon,{name:'check',size:12})),
                 React.createElement('button',{
                   className:'btn btn-danger btn-sm',style:{padding:'3px 8px'},
                   onClick:e=>{e.stopPropagation();setConfirmDel(p);}
@@ -891,6 +898,26 @@ function ProspectsPage(){
       }),
 
     emailModal&&React.createElement(EmailComposeModal,{prospect:emailModal,onClose:()=>setEmailModal(null)}),
+
+    convertModal&&React.createElement(ContainerModal,{
+      initial:{
+        customer_name: convertModal.name||'',
+        email:         convertModal.email||'',
+        phone:         convertModal.phone||'',
+        address1:      convertModal.address1||'',
+        address2:      convertModal.address2||'',
+        postcode:      convertModal.postcode||'',
+        converted_from_prospect_id: convertModal.id,
+      },
+      onClose:()=>setConvertModal(null),
+      onSave:(saved)=>{
+        showToast(convertModal.name+' converted — find them in Containers','success');
+        // Flip the prospect badge to Converted in local state
+        setProspects(ps=>ps.map(p=>p.id===convertModal.id?{...p,status:'Converted'}:p));
+        setConvertModal(null);
+      },
+      onDelete:()=>{}, // not used in this context
+    }),
 
     confirmDel&&React.createElement('div',{className:'overlay',onClick:e=>e.target===e.currentTarget&&setConfirmDel(null)},
       React.createElement('div',{className:'modal',style:{maxWidth:420}},
@@ -2534,3 +2561,4 @@ ReactDOM.render(React.createElement(App),document.getElementById('root'));
 </script>
 </body>
 </html>
+
