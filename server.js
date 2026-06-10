@@ -1244,6 +1244,13 @@ app.post('/api/payments', authRequired, async (req, res) => {
        parseFloat(amount), payment_date,
        method || 'Bank Transfer', notes || '', req.user.username]
     );
+    // Update the container's payment_status to Paid
+    if (container_id) {
+      await db.query(
+        `UPDATE containers SET payment_status='Paid' WHERE id=$1 AND company_id=$2`,
+        [container_id, cid]
+      );
+    }
     res.status(201).json({ ...rows[0], amount: parseFloat(rows[0].amount) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
