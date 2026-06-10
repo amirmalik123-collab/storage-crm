@@ -123,6 +123,21 @@ async function initDb() {
       updated_at  TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- ── Payments (recorded payments against containers) ───────────────────
+    CREATE TABLE IF NOT EXISTS payments (
+      id            SERIAL PRIMARY KEY,
+      company_id    INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      container_id  INTEGER REFERENCES containers(id) ON DELETE SET NULL,
+      container_number TEXT NOT NULL DEFAULT '',
+      customer_name TEXT NOT NULL DEFAULT '',
+      amount        NUMERIC(10,2) NOT NULL DEFAULT 0,
+      payment_date  DATE NOT NULL DEFAULT CURRENT_DATE,
+      method        TEXT DEFAULT 'Bank Transfer',
+      notes         TEXT DEFAULT '',
+      recorded_by   TEXT DEFAULT '',
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+
     -- ── Prospect Emails (log of sent emails) ──────────────────────────────
     CREATE TABLE IF NOT EXISTS prospect_emails (
       id          SERIAL PRIMARY KEY,
@@ -186,6 +201,8 @@ async function initDb() {
     `ALTER TABLE IF EXISTS containers      ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ   DEFAULT NOW()`,
     // prospect_emails table (added in v17) — safe to run repeatedly
     `CREATE TABLE IF NOT EXISTS prospect_emails (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, prospect_id INTEGER NOT NULL, to_email TEXT NOT NULL, reply_to TEXT DEFAULT '', subject TEXT NOT NULL, body TEXT NOT NULL, sent_by TEXT DEFAULT '', sent_at TIMESTAMPTZ DEFAULT NOW())`,
+    // payments table (added in v18)
+    `CREATE TABLE IF NOT EXISTS payments (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, container_id INTEGER, container_number TEXT NOT NULL DEFAULT '', customer_name TEXT NOT NULL DEFAULT '', amount NUMERIC(10,2) NOT NULL DEFAULT 0, payment_date DATE NOT NULL DEFAULT CURRENT_DATE, method TEXT DEFAULT 'Bank Transfer', notes TEXT DEFAULT '', recorded_by TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW())`,
     // Ensure prospects has all fields
     `ALTER TABLE IF EXISTS prospects       ADD COLUMN IF NOT EXISTS address1      TEXT DEFAULT ''`,
     `ALTER TABLE IF EXISTS prospects       ADD COLUMN IF NOT EXISTS address2      TEXT DEFAULT ''`,
@@ -1179,6 +1196,67 @@ app.post('/api/prospects/:id/email', authRequired, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Payments ───────────────────────────────────────────────────────────────────
+
+// GET /api/payments?container_id=X   — payments for one container
+// GET /api/payments?customer_name=X  — payments for a customer (all containers)
+app.get('/api/payments', authRequired, async (req, res) => {
+  try {
+    const cid = req.user.company_id;
+    const { container_id, customer_name } = req.query;
+    const params = [cid];
+    const conds = ['company_id=$1'];
+    if (container_id) { params.push(container_id); conds.push(`container_id=$${params.length}`); }
+    if (customer_name) { params.push(customer_name); conds.push(`customer_name=$${params.length}`); }
+    const { rows } = await db.query(
+      `SELECT * FROM payments WHERE ${conds.join(' AND ')} ORDER BY payment_date DESC, created_at DESC`,
+      params
+    );
+    res.json(rows.map(r => ({ ...r, amount: parseFloat(r.amount) || 0 })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/payments  — record a new payment
+app.post('/api/payments', authRequired, async (req, res) => {
+  try {
+    const cid = req.user.company_id;
+    const { container_id, container_number, customer_name, amount, payment_date, method, notes } = req.body || {};
+    if (!amount || parseFloat(amount) <= 0)
+      return res.status(400).json({ error: 'Amount must be greater than zero' });
+    if (!payment_date)
+      return res.status(400).json({ error: 'Payment date is required' });
+
+    // If container_id given, verify it belongs to this company and pull details
+    let cn = container_number || '';
+    let cust = customer_name || '';
+    if (container_id) {
+      const { rows } = await db.query(
+        'SELECT container_number, customer_name FROM containers WHERE id=$1 AND company_id=$2',
+        [container_id, cid]
+      );
+      if (rows[0]) { cn = rows[0].container_number; cust = rows[0].customer_name || cust; }
+    }
+
+    const { rows } = await db.query(
+      `INSERT INTO payments (company_id, container_id, container_number, customer_name, amount, payment_date, method, notes, recorded_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [cid, container_id || null, cn, cust,
+       parseFloat(amount), payment_date,
+       method || 'Bank Transfer', notes || '', req.user.username]
+    );
+    res.status(201).json({ ...rows[0], amount: parseFloat(rows[0].amount) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/payments/:id  — remove a payment record
+app.delete('/api/payments/:id', authRequired, async (req, res) => {
+  try {
+    await db.query('DELETE FROM payments WHERE id=$1 AND company_id=$2',
+      [req.params.id, req.user.company_id]);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
@@ -1189,3 +1267,4 @@ initDb()
     console.log(`   Demo login: admin / admin123\n`);
   }))
   .catch(err => { console.error('DB init failed:', err.message); process.exit(1); });
+
