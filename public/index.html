@@ -656,6 +656,166 @@ function ProspectModal({prospect,onClose,onSaved}){
   );
 }
 
+// ── Convert Prospect Modal ────────────────────────────────────────────────────
+function ConvertProspectModal({prospect, onClose, onConverted}){
+  const{showToast}=useApp();
+  const[vacants,setVacants]=useState(null);
+  const[selectedId,setSelectedId]=useState('');
+  const[form,setForm]=useState({
+    start_date: new Date().toISOString().slice(0,10),
+    end_date: '',
+  });
+  const[saving,setSaving]=useState(false);
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+
+  useEffect(()=>{
+    api('/containers?status=Vacant')
+      .then(cs=>{
+        setVacants(cs);
+        if(cs.length===1) setSelectedId(String(cs[0].id));
+      })
+      .catch(()=>setVacants([]));
+  },[]);
+
+  const selected=vacants&&selectedId?vacants.find(c=>String(c.id)===selectedId):null;
+
+  const save=async()=>{
+    if(!selectedId){showToast('Please select a container','error');return;}
+    if(!form.start_date){showToast('Start date is required','error');return;}
+    setSaving(true);
+    try{
+      // PUT to the existing container — merging prospect contact details in
+      await api('/containers/'+selectedId,{method:'PUT',body:{
+        // Keep all existing container fields
+        ...selected,
+        // Overwrite contact details from prospect
+        customer_name:  prospect.name||'',
+        email:          prospect.email||'',
+        phone:          prospect.phone||'',
+        address1:       prospect.address1||'',
+        address2:       prospect.address2||'',
+        postcode:       prospect.postcode||'',
+        // Apply chosen dates
+        start_date:     form.start_date||null,
+        end_date:       form.end_date||null,
+        order_date:     selected.order_date?String(selected.order_date).slice(0,10):null,
+        // Link back to the prospect
+        converted_from_prospect_id: prospect.id,
+      }});
+      // Mark the prospect as Converted in the DB
+      await api('/prospects/'+prospect.id,{method:'PUT',body:{...prospect,status:'Converted'}});
+      showToast(prospect.name+' assigned to '+selected.container_number,'success');
+      onConverted(prospect.id);
+    }catch(e){showToast(e.message,'error');setSaving(false);}
+  };
+
+  // Group vacant containers by size for display
+  const sizeGroups={};
+  (vacants||[]).forEach(c=>{
+    const s=c.container_size||'Other';
+    if(!sizeGroups[s]) sizeGroups[s]=[];
+    sizeGroups[s].push(c);
+  });
+
+  return React.createElement('div',{className:'overlay',onClick:e=>e.target===e.currentTarget&&onClose()},
+    React.createElement('div',{className:'modal',style:{maxWidth:500}},
+      React.createElement('div',{className:'modal-header'},
+        React.createElement('div',null,
+          React.createElement('div',{className:'modal-title'},'\u{1F4E6} Convert to Customer'),
+          React.createElement('div',{style:{fontSize:11,color:'var(--text3)',marginTop:2}},
+            'Assigning '+prospect.name+' to a vacant container'
+          )
+        ),
+        React.createElement('button',{className:'modal-close',onClick:onClose},React.createElement(Icon,{name:'close',size:18}))
+      ),
+      React.createElement('div',{className:'modal-body'},
+
+        // Vacant container picker
+        React.createElement('div',{className:'login-field'},
+          React.createElement('label',null,'Select Vacant Container'),
+          vacants===null
+            ? React.createElement('div',{style:{padding:'8px 0',color:'var(--text3)',fontSize:13}},'\u2026 Loading containers')
+            : vacants.length===0
+            ? React.createElement('div',{style:{padding:'10px 12px',background:'var(--amber-glow,#fff8e6)',border:'1px solid var(--amber,#f59e0b)',borderRadius:6,fontSize:12,color:'var(--amber,#b45309)'}},
+                '\u26a0\ufe0f No vacant containers available. Archive or free up a container first.'
+              )
+            : React.createElement('select',{
+                value:selectedId,
+                onChange:e=>setSelectedId(e.target.value),
+                style:{width:'100%'}
+              },
+                React.createElement('option',{value:''},'— Choose a container —'),
+                Object.entries(sizeGroups).map(([size,cs])=>
+                  React.createElement('optgroup',{key:size,label:size},
+                    cs.map(c=>React.createElement('option',{key:c.id,value:String(c.id)},
+                      c.container_number+' \u00b7 '+c.container_size+' \u00b7 '+(c.location||'')+(c.monthly_rate?' \u00b7 \u00a3'+parseFloat(c.monthly_rate).toFixed(0)+'/mo':'')
+                    ))
+                  )
+                )
+              )
+        ),
+
+        // Selected container summary
+        selected&&React.createElement('div',{style:{
+          background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:6,
+          padding:'10px 14px',marginBottom:12,fontSize:12
+        }},
+          React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}},
+            React.createElement('div',null,
+              React.createElement('div',{style:{color:'var(--text3)',marginBottom:2}},'Size'),
+              React.createElement('div',{style:{fontWeight:600}},selected.container_size)
+            ),
+            React.createElement('div',null,
+              React.createElement('div',{style:{color:'var(--text3)',marginBottom:2}},'Location'),
+              React.createElement('div',{style:{fontWeight:600}},selected.location||'\u2014')
+            ),
+            React.createElement('div',null,
+              React.createElement('div',{style:{color:'var(--text3)',marginBottom:2}},'Monthly Rate'),
+              React.createElement('div',{style:{fontWeight:600,fontFamily:'var(--mono)'}},
+                selected.monthly_rate?'\u00a3'+parseFloat(selected.monthly_rate).toFixed(2):'\u2014'
+              )
+            )
+          )
+        ),
+
+        // Dates
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
+          React.createElement('div',{className:'login-field'},
+            React.createElement('label',null,'Start Date'),
+            React.createElement('input',{type:'date',value:form.start_date,onChange:e=>set('start_date',e.target.value)})
+          ),
+          React.createElement('div',{className:'login-field'},
+            React.createElement('label',null,'End Date ',React.createElement('span',{style:{fontWeight:400,color:'var(--text3)',fontSize:11}},'(blank = rolling)')),
+            React.createElement('input',{type:'date',value:form.end_date,onChange:e=>set('end_date',e.target.value)})
+          )
+        ),
+
+        // Prospect details summary (read-only)
+        React.createElement('div',{style:{
+          marginTop:4,padding:'10px 14px',background:'var(--surface2)',
+          border:'1px solid var(--border)',borderRadius:6,fontSize:12
+        }},
+          React.createElement('div',{style:{color:'var(--text3)',marginBottom:6,fontWeight:600}},'Customer details (from prospect)'),
+          React.createElement('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px 16px',color:'var(--text2)'}},
+            React.createElement('div',null,'\uD83D\uDC64 '+prospect.name),
+            prospect.phone&&React.createElement('div',null,'\uD83D\uDCDE '+prospect.phone),
+            prospect.email&&React.createElement('div',null,'\u2709\uFE0F '+prospect.email),
+            (prospect.address1||prospect.postcode)&&React.createElement('div',null,'\uD83D\uDCCD '+(prospect.address1||'')+' '+(prospect.postcode||''))
+          )
+        )
+      ),
+      React.createElement('div',{className:'modal-footer'},
+        React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),
+        React.createElement('button',{
+          className:'btn btn-primary',
+          onClick:save,
+          disabled:saving||!selectedId||vacants===null||vacants.length===0
+        },saving?'Converting\u2026':React.createElement('span',null,React.createElement(Icon,{name:'check',size:13}),' Assign Container'))
+      )
+    )
+  );
+}
+
 // ── Prospects page ────────────────────────────────────────────────────────────
 
 // ── Email Compose Modal ───────────────────────────────────────────────────────
@@ -899,24 +1059,13 @@ function ProspectsPage(){
 
     emailModal&&React.createElement(EmailComposeModal,{prospect:emailModal,onClose:()=>setEmailModal(null)}),
 
-    convertModal&&React.createElement(ContainerModal,{
-      initial:{
-        customer_name: convertModal.name||'',
-        email:         convertModal.email||'',
-        phone:         convertModal.phone||'',
-        address1:      convertModal.address1||'',
-        address2:      convertModal.address2||'',
-        postcode:      convertModal.postcode||'',
-        converted_from_prospect_id: convertModal.id,
-      },
+    convertModal&&React.createElement(ConvertProspectModal,{
+      prospect:convertModal,
       onClose:()=>setConvertModal(null),
-      onSave:(saved)=>{
-        showToast(convertModal.name+' converted — find them in Containers','success');
-        // Flip the prospect badge to Converted in local state
-        setProspects(ps=>ps.map(p=>p.id===convertModal.id?{...p,status:'Converted'}:p));
+      onConverted:(prospId)=>{
+        setProspects(ps=>ps.map(p=>p.id===prospId?{...p,status:'Converted'}:p));
         setConvertModal(null);
       },
-      onDelete:()=>{}, // not used in this context
     }),
 
     confirmDel&&React.createElement('div',{className:'overlay',onClick:e=>e.target===e.currentTarget&&setConfirmDel(null)},
@@ -2561,4 +2710,3 @@ ReactDOM.render(React.createElement(App),document.getElementById('root'));
 </script>
 </body>
 </html>
-
