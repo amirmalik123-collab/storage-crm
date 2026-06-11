@@ -433,6 +433,25 @@ function Toast({msg,type,onDone}){
   return React.createElement('div',{className:`toast ${type}`},msg);
 }
 
+// ── Send Container Email Button ───────────────────────────────────────────────
+function SendContainerEmailButton({containerId,customerEmail,style={}}){
+  const{showToast}=useApp();
+  const[sending,setSending]=useState(false);
+  if(!customerEmail) return null;
+  const send=async()=>{
+    setSending(true);
+    try{
+      await api('/containers/'+containerId+'/email',{method:'POST',body:{template:'rental_confirmation'}});
+      showToast('Confirmation email sent to '+customerEmail,'success');
+    }catch(e){showToast('Email failed: '+e.message,'error');}
+    setSending(false);
+  };
+  return React.createElement('button',{
+    className:'btn btn-ghost btn-sm',onClick:send,disabled:sending,
+    title:'Send rental confirmation email',style
+  },sending?'Sending\u2026':React.createElement('span',null,React.createElement(Icon,{name:'mail',size:12}),' Send Email'));
+}
+
 // ── Container form modal ──────────────────────────────────────────────────────
 const EMPTY={container_number:'',container_size:'20ft',location:'Back Row',order_date:'',start_date:'',end_date:'',customer_name:'',joining_email_sent:false,id_check:false,phone:'',email:'',address1:'',address2:'',postcode:'',contract_signed:false,insurance:false,monthly_rate:'',intro_rate:'',intro_months:'',payment_status:'Pending',notes:''};
 
@@ -535,10 +554,11 @@ function ContainerModal({initial,onSave,onClose,onDelete}){
             className:'btn btn-danger',
             onClick:()=>{onDelete(initial);},
           },React.createElement(Icon,{name:'trash',size:14}),'Delete Container'),
-          !isEdit&&form.email&&React.createElement('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text2)',cursor:'pointer',userSelect:'none'}},
-            React.createElement('input',{type:'checkbox',checked:sendConfirmation,onChange:e=>setSendConfirmation(e.target.checked),style:{accentColor:'var(--blue)'}}),
+          isEdit&&initial.email&&React.createElement(SendContainerEmailButton,{containerId:initial.id,customerEmail:initial.email}),
+          !isEdit&&React.createElement('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:form.email?'var(--text2)':'var(--text3)',cursor:form.email?'pointer':'default',userSelect:'none'}},
+            React.createElement('input',{type:'checkbox',checked:sendConfirmation,onChange:e=>setSendConfirmation(e.target.checked),disabled:!form.email,style:{accentColor:'var(--blue)'}}),
             React.createElement(Icon,{name:'mail',size:11}),
-            ' Send rental confirmation email to '+form.email
+            form.email?' Send rental confirmation to '+form.email:' Send rental confirmation (add email address above to enable)'
           )
         ),
         React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),
@@ -1229,12 +1249,20 @@ function CustomerDetailPage({name,onBack}){
     React.createElement('div',{className:'detail-hero'},
       React.createElement('button',{className:'back-btn',onClick:onBack},React.createElement(Icon,{name:'back',size:16})),
       React.createElement('div',{className:'hero-avatar'},initials),
-      React.createElement('div',null,
+      React.createElement('div',{style:{flex:1}},
         React.createElement('div',{className:'hero-name'},name),
         data
           ?React.createElement('div',{className:'hero-sub'},data.customer.first_rental?`Customer since ${fmt(data.customer.first_rental)}`:'No rental dates on record')
           :React.createElement('div',{className:'hero-sub'},'\u00a0')
-      )
+      ),
+      data&&data.customer.email&&(()=>{
+        const activeRental=data.rentals.find(r=>r.src==='active'&&r.status==='Active');
+        return activeRental?React.createElement(SendContainerEmailButton,{
+          containerId:activeRental.id,
+          customerEmail:data.customer.email,
+          style:{alignSelf:'center'}
+        }):null;
+      })()
     ),
     err?React.createElement('div',{style:{padding:'40px 24px',color:'var(--red)',textAlign:'center'}},err):
     // Cards grid
@@ -2312,6 +2340,19 @@ function HistoryPage(){
 
 
 // ── Dropdown config panel ─────────────────────────────────────────────────────
+const DEFAULT_EMAIL_TEMPLATE_SUBJECT = 'Your storage rental confirmation \u2014 {{container_number}}';
+const DEFAULT_EMAIL_TEMPLATE_BODY = `Dear {{customer_name}},
+
+Thank you for choosing {{company_name}}. This email confirms your rental of container {{container_number}} ({{container_size}}) at {{location}}.
+
+Start date: {{start_date}}
+Monthly rate: \u00a3{{monthly_rate}}
+
+If you have any questions, please don\u2019t hesitate to get in touch.
+
+Kind regards,
+{{company_name}}`;
+
 const DEFAULT_OPTIONS = {
   container_sizes:   ['8ft','20ft','30ft','45ft','','',''],
   locations:         ['Back Row','Topper Back','Front Row','Topper Front','','',''],
@@ -2319,6 +2360,12 @@ const DEFAULT_OPTIONS = {
   payment_statuses:  ['Paid','Overdue','Pending','Direct Debit','Credit Note','',''],
   lead_sources:      ['Social Media','Google','Passing By','Referral','Phone Enquiry','Website',''],
   prospect_statuses: ['New','Contacted','Interested','Converted','Not Interested',''],
+  email_templates: {
+    rental_confirmation: {
+      subject: DEFAULT_EMAIL_TEMPLATE_SUBJECT,
+      body:    DEFAULT_EMAIL_TEMPLATE_BODY,
+    },
+  },
 };
 window._crmOptions = null;
 window.getCRMOptions = () => window._crmOptions || DEFAULT_OPTIONS;
@@ -2405,8 +2452,8 @@ function SettingsPage(){
     React.createElement('input',{type:'password',value:pwForm[k],onChange:e=>setPwForm(f=>({...f,[k]:e.target.value}))})
   );
   const[replyTo,setReplyTo]=useState(()=>(window.getCRMOptions().reply_to_email||''));
-  const[tmplSubject,setTmplSubject]=useState(()=>(window.getCRMOptions().email_templates?.rental_confirmation?.subject||'Your storage rental confirmation \u2014 {{container_number}}'));
-  const[tmplBody,setTmplBody]=useState(()=>(window.getCRMOptions().email_templates?.rental_confirmation?.body||''));
+  const[tmplSubject,setTmplSubject]=useState(()=>(window.getCRMOptions().email_templates?.rental_confirmation?.subject||DEFAULT_EMAIL_TEMPLATE_SUBJECT));
+  const[tmplBody,setTmplBody]=useState(()=>(window.getCRMOptions().email_templates?.rental_confirmation?.body||DEFAULT_EMAIL_TEMPLATE_BODY));
   const saveEmailSettings=async()=>{
     const opts={...window.getCRMOptions(),
       reply_to_email:replyTo.trim(),
