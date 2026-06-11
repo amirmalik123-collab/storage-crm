@@ -341,6 +341,12 @@ const DEFAULT_SETTINGS = {
   payment_statuses:  ['Paid','Overdue','Pending','Direct Debit','Credit Note','',''],
   lead_sources:      ['Social Media','Google','Passing By','Referral','Phone Enquiry','Website',''],
   prospect_statuses: ['New','Contacted','Interested','Converted','Not Interested',''],
+  email_templates: {
+    rental_confirmation: {
+      subject: 'Your storage rental confirmation \u2014 {{container_number}}',
+      body: `Dear {{customer_name}},\n\nThank you for choosing {{company_name}}. This email confirms your rental of container {{container_number}} ({{container_size}}) at {{location}}.\n\nStart date: {{start_date}}\nMonthly rate: \u00a3{{monthly_rate}}\n\nIf you have any questions, please don\u2019t hesitate to get in touch.\n\nKind regards,\n{{company_name}}`,
+    },
+  },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1282,6 +1288,77 @@ app.delete('/api/payments/:id', authRequired, async (req, res) => {
     await db.query('DELETE FROM payments WHERE id=$1 AND company_id=$2',
       [req.params.id, req.user.company_id]);
     res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Container Emails ───────────────────────────────────────────────────────────
+
+// Helper: substitute {{placeholders}} in a template string
+function fillTemplate(tmpl, vars) {
+  return tmpl.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] !== undefined ? vars[key] : `{{${key}}}`);
+}
+
+// POST /api/containers/:id/email  — send a templated email to the container's customer
+app.post('/api/containers/:id/email', authRequired, async (req, res) => {
+  try {
+    const cid = req.user.company_id;
+    const { template = 'rental_confirmation', custom_subject, custom_body } = req.body || {};
+
+    // Fetch container
+    const { rows: cRows } = await db.query(
+      'SELECT * FROM containers WHERE id=$1 AND company_id=$2', [req.params.id, cid]
+    );
+    if (!cRows[0]) return res.status(404).json({ error: 'Container not found' });
+    const container = enrichContainer(cRows[0]);
+    if (!container.email) return res.status(400).json({ error: 'This customer has no email address' });
+
+    // Fetch settings (templates + reply-to)
+    const { rows: sRows } = await db.query(
+      'SELECT settings FROM company_settings WHERE company_id=$1', [cid]
+    );
+    const settings = { ...DEFAULT_SETTINGS, ...(sRows[0]?.settings || {}) };
+    const templates = { ...DEFAULT_SETTINGS.email_templates, ...(settings.email_templates || {}) };
+    const tmpl = templates[template] || templates.rental_confirmation;
+
+    // Fetch company name
+    const { rows: coRows } = await db.query('SELECT name FROM companies WHERE id=$1', [cid]);
+    const companyName = coRows[0]?.name || 'Your Storage Company';
+
+    // Build placeholder values
+    const fmt = d => d ? new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'long', year:'numeric' }) : '—';
+    const vars = {
+      customer_name:    container.customer_name || '',
+      container_number: container.container_number || '',
+      container_size:   container.container_size || '',
+      location:         container.location || '',
+      start_date:       fmt(container.start_date),
+      end_date:         container.end_date ? fmt(container.end_date) : 'Rolling',
+      monthly_rate:     parseFloat(container.monthly_rate || 0).toFixed(2),
+      company_name:     companyName,
+    };
+
+    const subject = fillTemplate(custom_subject || tmpl.subject, vars);
+    const body    = fillTemplate(custom_body    || tmpl.body,    vars);
+    const replyTo = settings.reply_to_email || '';
+
+    // Send
+    if (!resendClient) return res.status(503).json({ error: 'Email sending not configured on this account' });
+    const emailPayload = {
+      from: `${companyName} <${FROM_EMAIL}>`,
+      to:   [container.email.trim()],
+      subject, text: body,
+    };
+    if (replyTo) emailPayload.reply_to = replyTo;
+    await resendClient.emails.send(emailPayload);
+
+    // Log to prospect_emails table (reusing it for now; entity_type can distinguish later)
+    await db.query(
+      `INSERT INTO prospect_emails (company_id, prospect_id, to_email, reply_to, subject, body, sent_by)
+       VALUES ($1, -1, $2, $3, $4, $5, $6)`,
+      [cid, container.email.trim(), replyTo, subject, body, req.user.username]
+    );
+
+    res.json({ success: true, to: container.email, subject });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
