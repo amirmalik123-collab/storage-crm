@@ -150,7 +150,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS prospect_emails (
       id          SERIAL PRIMARY KEY,
       company_id  INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-      prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+      prospect_id INTEGER REFERENCES prospects(id) ON DELETE CASCADE,
       to_email    TEXT NOT NULL,
       reply_to    TEXT DEFAULT '',
       subject     TEXT NOT NULL,
@@ -208,7 +208,9 @@ async function initDb() {
     `ALTER TABLE IF EXISTS containers      ADD COLUMN IF NOT EXISTS updated_at    TIMESTAMPTZ   DEFAULT NOW()`,
     `ALTER TABLE IF EXISTS containers      ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ   DEFAULT NOW()`,
     // prospect_emails table (added in v17) — safe to run repeatedly
-    `CREATE TABLE IF NOT EXISTS prospect_emails (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, prospect_id INTEGER NOT NULL, to_email TEXT NOT NULL, reply_to TEXT DEFAULT '', subject TEXT NOT NULL, body TEXT NOT NULL, sent_by TEXT DEFAULT '', sent_at TIMESTAMPTZ DEFAULT NOW())`,
+    `CREATE TABLE IF NOT EXISTS prospect_emails (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, prospect_id INTEGER, to_email TEXT NOT NULL, reply_to TEXT DEFAULT '', subject TEXT NOT NULL, body TEXT NOT NULL, sent_by TEXT DEFAULT '', sent_at TIMESTAMPTZ DEFAULT NOW())`,
+    // Make prospect_id nullable (v20b fix — allows logging container emails)
+    `ALTER TABLE IF EXISTS prospect_emails ALTER COLUMN prospect_id DROP NOT NULL`,
     // payments table (added in v18)
     `CREATE TABLE IF NOT EXISTS payments (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, container_id INTEGER, container_number TEXT NOT NULL DEFAULT '', customer_name TEXT NOT NULL DEFAULT '', amount NUMERIC(10,2) NOT NULL DEFAULT 0, payment_date DATE NOT NULL DEFAULT CURRENT_DATE, method TEXT DEFAULT 'Bank Transfer', notes TEXT DEFAULT '', recorded_by TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW())`,
     // converted_from_prospect_id on containers (added in v19)
@@ -1351,12 +1353,14 @@ app.post('/api/containers/:id/email', authRequired, async (req, res) => {
     if (replyTo) emailPayload.reply_to = replyTo;
     await resendClient.emails.send(emailPayload);
 
-    // Log to prospect_emails table (reusing it for now; entity_type can distinguish later)
-    await db.query(
-      `INSERT INTO prospect_emails (company_id, prospect_id, to_email, reply_to, subject, body, sent_by)
-       VALUES ($1, -1, $2, $3, $4, $5, $6)`,
-      [cid, container.email.trim(), replyTo, subject, body, req.user.username]
-    );
+    // Log the email — best-effort, never fail the request over a log error
+    try {
+      await db.query(
+        `INSERT INTO prospect_emails (company_id, prospect_id, to_email, reply_to, subject, body, sent_by)
+         VALUES ($1, NULL, $2, $3, $4, $5, $6)`,
+        [cid, container.email.trim(), replyTo, subject, body, req.user.username]
+      );
+    } catch (logErr) { console.warn('Email log failed:', logErr.message); }
 
     res.json({ success: true, to: container.email, subject });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1372,3 +1376,4 @@ initDb()
     console.log(`   Demo login: admin / admin123\n`);
   }))
   .catch(err => { console.error('DB init failed:', err.message); process.exit(1); });
+
