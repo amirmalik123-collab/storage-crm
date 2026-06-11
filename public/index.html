@@ -437,18 +437,29 @@ function Toast({msg,type,onDone}){
 const EMPTY={container_number:'',container_size:'20ft',location:'Back Row',order_date:'',start_date:'',end_date:'',customer_name:'',joining_email_sent:false,id_check:false,phone:'',email:'',address1:'',address2:'',postcode:'',contract_signed:false,insurance:false,monthly_rate:'',intro_rate:'',intro_months:'',payment_status:'Pending',notes:''};
 
 function ContainerModal({initial,onSave,onClose,onDelete}){
+  const{showToast}=useApp();
   const[form,setForm]=useState(initial?{...initial,joining_email_sent:!!initial.joining_email_sent,id_check:!!initial.id_check,contract_signed:!!initial.contract_signed,insurance:!!initial.insurance,start_date:initial.start_date?(initial.start_date+'').slice(0,10):'',end_date:initial.end_date?(initial.end_date+'').slice(0,10):'',order_date:initial.order_date?(initial.order_date+'').slice(0,10):'',intro_rate:initial.intro_rate!=null?String(initial.intro_rate):'',intro_months:initial.intro_months!=null?String(initial.intro_months):''}:{...EMPTY});
   const[saving,setSaving]=useState(false);
   const[err,setErr]=useState('');
+  const[sendConfirmation,setSendConfirmation]=useState(false);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const isEdit=!!(initial&&initial.id);
   const submit=async()=>{
     if(!form.container_number.trim()){setErr('Container number is required');return;}
     setSaving(true);setErr('');
     try{
-      const isEdit=!!(initial&&initial.id);
       const method=isEdit?'PUT':'POST';
       const path=isEdit?`/containers/${initial.id}`:'/containers';
       const data=await api(path,{method,body:{...form,start_date:form.start_date||null,end_date:form.end_date||null,order_date:form.order_date||null}});
+      // Send confirmation email if requested and customer has an email
+      if(sendConfirmation&&data.email&&data.id){
+        try{
+          await api('/containers/'+data.id+'/email',{method:'POST',body:{template:'rental_confirmation'}});
+          showToast('Confirmation email sent to '+data.email,'success');
+        }catch(emailErr){
+          showToast('Saved, but email failed: '+emailErr.message,'error');
+        }
+      }
       onSave(data);
     }catch(e){setErr(e.message);}finally{setSaving(false);}
   };
@@ -519,11 +530,16 @@ function ContainerModal({initial,onSave,onClose,onDelete}){
         )
       ),
       React.createElement('div',{className:'modal-footer'},
-        React.createElement('div',{style:{flex:1}},
+        React.createElement('div',{style:{flex:1,display:'flex',flexDirection:'column',gap:6}},
           initial&&initial.id&&React.createElement('button',{
             className:'btn btn-danger',
             onClick:()=>{onDelete(initial);},
-          },React.createElement(Icon,{name:'trash',size:14}),'Delete Container')
+          },React.createElement(Icon,{name:'trash',size:14}),'Delete Container'),
+          !isEdit&&form.email&&React.createElement('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text2)',cursor:'pointer',userSelect:'none'}},
+            React.createElement('input',{type:'checkbox',checked:sendConfirmation,onChange:e=>setSendConfirmation(e.target.checked),style:{accentColor:'var(--blue)'}}),
+            React.createElement(Icon,{name:'mail',size:11}),
+            ' Send rental confirmation email to '+form.email
+          )
         ),
         React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),
         React.createElement('button',{className:'btn btn-primary',onClick:submit,disabled:saving},saving?React.createElement('span',{className:'spinner'}):'Save Container')
@@ -666,6 +682,7 @@ function ConvertProspectModal({prospect, onClose, onConverted}){
     end_date: '',
   });
   const[saving,setSaving]=useState(false);
+  const[sendConfirmation,setSendConfirmation]=useState(!!(prospect.email));
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
 
   useEffect(()=>{
@@ -684,27 +701,31 @@ function ConvertProspectModal({prospect, onClose, onConverted}){
     if(!form.start_date){showToast('Start date is required','error');return;}
     setSaving(true);
     try{
-      // PUT to the existing container — merging prospect contact details in
       await api('/containers/'+selectedId,{method:'PUT',body:{
-        // Keep all existing container fields
         ...selected,
-        // Overwrite contact details from prospect
         customer_name:  prospect.name||'',
         email:          prospect.email||'',
         phone:          prospect.phone||'',
         address1:       prospect.address1||'',
         address2:       prospect.address2||'',
         postcode:       prospect.postcode||'',
-        // Apply chosen dates
         start_date:     form.start_date||null,
         end_date:       form.end_date||null,
         order_date:     selected.order_date?String(selected.order_date).slice(0,10):null,
-        // Link back to the prospect
         converted_from_prospect_id: prospect.id,
       }});
-      // Mark the prospect as Converted in the DB
       await api('/prospects/'+prospect.id,{method:'PUT',body:{...prospect,status:'Converted'}});
-      showToast(prospect.name+' assigned to '+selected.container_number,'success');
+      // Send confirmation email if requested
+      if(sendConfirmation&&prospect.email){
+        try{
+          await api('/containers/'+selectedId+'/email',{method:'POST',body:{template:'rental_confirmation'}});
+          showToast(prospect.name+' assigned to '+selected.container_number+' \u00b7 Confirmation email sent','success');
+        }catch(emailErr){
+          showToast(prospect.name+' assigned \u2014 email failed: '+emailErr.message,'error');
+        }
+      } else {
+        showToast(prospect.name+' assigned to '+selected.container_number,'success');
+      }
       onConverted(prospect.id);
     }catch(e){showToast(e.message,'error');setSaving(false);}
   };
@@ -805,6 +826,13 @@ function ConvertProspectModal({prospect, onClose, onConverted}){
         )
       ),
       React.createElement('div',{className:'modal-footer'},
+        React.createElement('div',{style:{flex:1}},
+          prospect.email&&React.createElement('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:'var(--text2)',cursor:'pointer',userSelect:'none'}},
+            React.createElement('input',{type:'checkbox',checked:sendConfirmation,onChange:e=>setSendConfirmation(e.target.checked),style:{accentColor:'var(--blue)'}}),
+            React.createElement(Icon,{name:'mail',size:11}),
+            ' Send rental confirmation to '+prospect.email
+          )
+        ),
         React.createElement('button',{className:'btn btn-ghost',onClick:onClose},'Cancel'),
         React.createElement('button',{
           className:'btn btn-primary',
@@ -2377,24 +2405,52 @@ function SettingsPage(){
     React.createElement('input',{type:'password',value:pwForm[k],onChange:e=>setPwForm(f=>({...f,[k]:e.target.value}))})
   );
   const[replyTo,setReplyTo]=useState(()=>(window.getCRMOptions().reply_to_email||''));
-  const saveReplyTo=async()=>{
-    const opts={...window.getCRMOptions(),reply_to_email:replyTo.trim()};
+  const[tmplSubject,setTmplSubject]=useState(()=>(window.getCRMOptions().email_templates?.rental_confirmation?.subject||'Your storage rental confirmation \u2014 {{container_number}}'));
+  const[tmplBody,setTmplBody]=useState(()=>(window.getCRMOptions().email_templates?.rental_confirmation?.body||''));
+  const saveEmailSettings=async()=>{
+    const opts={...window.getCRMOptions(),
+      reply_to_email:replyTo.trim(),
+      email_templates:{...(window.getCRMOptions().email_templates||{}),
+        rental_confirmation:{subject:tmplSubject,body:tmplBody}
+      }
+    };
     await saveOptions(opts);showToast('Email settings saved','success');
   };
+  const PLACEHOLDERS=['{{customer_name}}','{{container_number}}','{{container_size}}','{{location}}','{{start_date}}','{{end_date}}','{{monthly_rate}}','{{company_name}}'];
   return React.createElement('div',null,
     React.createElement(BillingCard),
     React.createElement(DropdownConfig,null),
     React.createElement('div',{className:'settings-card'},
       React.createElement('h3',{style:{marginTop:0,marginBottom:4}},'Email Settings'),
       React.createElement('div',{style:{fontSize:12,color:'var(--text3)',marginBottom:16}},
-        'When you send emails to prospects, replies from customers will go to your Reply-To address below. Leave blank to use the platform default.'
+        'Configure your sending preferences and email templates.'
       ),
-      React.createElement('div',{style:{maxWidth:440}},
+      React.createElement('div',{style:{maxWidth:540}},
         React.createElement('div',{className:'login-field'},
-          React.createElement('label',null,'Your Reply-To Email Address'),
+          React.createElement('label',null,'Reply-To Email Address'),
+          React.createElement('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:4}},'Customer replies will go to this address.'),
           React.createElement('input',{type:'email',value:replyTo,onChange:e=>setReplyTo(e.target.value),placeholder:'e.g. enquiries@yourbusiness.co.uk'})
         ),
-        React.createElement('button',{className:'btn btn-primary btn-sm',onClick:saveReplyTo},'Save Email Settings')
+        React.createElement('div',{style:{borderTop:'1px solid var(--border)',paddingTop:16,marginTop:8}},
+          React.createElement('div',{style:{fontWeight:600,fontSize:13,marginBottom:4}},'Rental Confirmation Template'),
+          React.createElement('div',{style:{fontSize:11,color:'var(--text3)',marginBottom:10}},
+            'Sent to new customers when a container is assigned. Available placeholders: ',
+            PLACEHOLDERS.map((p,i)=>React.createElement('span',{key:p},
+              React.createElement('code',{style:{fontSize:10,background:'var(--surface2)',padding:'1px 4px',borderRadius:3,marginRight:2}},p),
+              i<PLACEHOLDERS.length-1?' ':null
+            ))
+          ),
+          React.createElement('div',{className:'login-field'},
+            React.createElement('label',null,'Subject'),
+            React.createElement('input',{type:'text',value:tmplSubject,onChange:e=>setTmplSubject(e.target.value)})
+          ),
+          React.createElement('div',{className:'login-field'},
+            React.createElement('label',null,'Body'),
+            React.createElement('textarea',{value:tmplBody,onChange:e=>setTmplBody(e.target.value),rows:10,
+              style:{width:'100%',boxSizing:'border-box',resize:'vertical',fontFamily:'inherit',fontSize:12,padding:'8px 10px',border:'1px solid var(--border)',borderRadius:6,background:'var(--surface)',color:'var(--text)',lineHeight:1.6}})
+          )
+        ),
+        React.createElement('button',{className:'btn btn-primary btn-sm',onClick:saveEmailSettings},'Save Email Settings')
       )
     ),
     React.createElement('div',{className:'settings-card'},
