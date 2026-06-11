@@ -26,8 +26,15 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'notifications@example.com';
 
 let resendClient = null;
 if (RESEND_API_KEY) {
-  try { const { Resend } = require('resend'); resendClient = new Resend(RESEND_API_KEY); }
-  catch { console.warn('resend package not installed — email disabled'); }
+  try {
+    const { Resend } = require('resend');
+    resendClient = new Resend(RESEND_API_KEY);
+    console.log('✅ Resend email client initialised. FROM_EMAIL:', FROM_EMAIL);
+  } catch (e) {
+    console.warn('⚠️  resend package not installed — email disabled. Error:', e.message);
+  }
+} else {
+  console.warn('⚠️  RESEND_API_KEY not set — email sending disabled');
 }
 
 app.use(cors());
@@ -1288,4 +1295,3 @@ initDb()
     console.log(`   Demo login: admin / admin123\n`);
   }))
   .catch(err => { console.error('DB init failed:', err.message); process.exit(1); });
-
