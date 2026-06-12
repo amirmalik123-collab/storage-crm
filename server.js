@@ -131,6 +131,19 @@ async function initDb() {
       updated_at  TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- ── Activities (timestamped log for prospects and customers) ─────────────
+    CREATE TABLE IF NOT EXISTS activities (
+      id            SERIAL PRIMARY KEY,
+      company_id    INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+      entity_type   TEXT NOT NULL,
+      entity_id     INTEGER NOT NULL,
+      activity_type TEXT NOT NULL DEFAULT 'Note',
+      content       TEXT NOT NULL DEFAULT '',
+      created_by    TEXT DEFAULT '',
+      created_at    TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS activities_entity ON activities(entity_type, entity_id);
+
     -- ── Payments (recorded payments against containers) ───────────────────
     CREATE TABLE IF NOT EXISTS payments (
       id            SERIAL PRIMARY KEY,
@@ -209,6 +222,8 @@ async function initDb() {
     `ALTER TABLE IF EXISTS containers      ADD COLUMN IF NOT EXISTS created_at    TIMESTAMPTZ   DEFAULT NOW()`,
     // prospect_emails table (added in v17) — safe to run repeatedly
     `CREATE TABLE IF NOT EXISTS prospect_emails (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, prospect_id INTEGER, to_email TEXT NOT NULL, reply_to TEXT DEFAULT '', subject TEXT NOT NULL, body TEXT NOT NULL, sent_by TEXT DEFAULT '', sent_at TIMESTAMPTZ DEFAULT NOW())`,
+    // activities table (added in v21)
+    `CREATE TABLE IF NOT EXISTS activities (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, entity_type TEXT NOT NULL, entity_id INTEGER NOT NULL, activity_type TEXT NOT NULL DEFAULT 'Note', content TEXT NOT NULL DEFAULT '', created_by TEXT DEFAULT '', created_at TIMESTAMPTZ DEFAULT NOW())`,
     // Make prospect_id nullable (v20b fix — allows logging container emails)
     `ALTER TABLE IF EXISTS prospect_emails ALTER COLUMN prospect_id DROP NOT NULL`,
     // payments table (added in v18)
@@ -972,6 +987,11 @@ app.put('/api/prospects/:id', authRequired, async (req, res) => {
   try {
     const { name, email, phone, address1, address2, postcode, source, status, notes } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Name is required' });
+    // Fetch old status for change detection
+    const { rows: old } = await db.query(
+      `SELECT status FROM prospects WHERE id=$1 AND company_id=$2`,
+      [req.params.id, req.user.company_id]
+    );
     const { rows } = await db.query(
       `UPDATE prospects SET name=$1,email=$2,phone=$3,address1=$4,address2=$5,
        postcode=$6,source=$7,status=$8,notes=$9,updated_at=NOW()
@@ -981,6 +1001,11 @@ app.put('/api/prospects/:id', authRequired, async (req, res) => {
        req.params.id, req.user.company_id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    // Auto-log status change
+    if (old[0] && old[0].status !== status) {
+      await logActivity(req.user.company_id, 'prospect', parseInt(req.params.id),
+        'Status Change', `Status changed from "${old[0].status}" to "${status}"`, req.user.username);
+    }
     res.json(rows[0]);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1138,6 +1163,104 @@ app.get('/api/income', authRequired, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Activities ─────────────────────────────────────────────────────────────────
+
+// Internal helper — log an activity without throwing (safe to call from other routes)
+async function logActivity(company_id, entity_type, entity_id, activity_type, content, created_by='system') {
+  try {
+    await db.query(
+      `INSERT INTO activities (company_id,entity_type,entity_id,activity_type,content,created_by)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [company_id, entity_type, entity_id, activity_type, content, created_by]
+    );
+  } catch (e) { console.warn('Activity log failed:', e.message); }
+}
+
+// GET /api/activities?entity_type=X&entity_id=Y
+app.get('/api/activities', authRequired, async (req, res) => {
+  try {
+    const { entity_type, entity_id } = req.query;
+    if (!entity_type || !entity_id) return res.status(400).json({ error: 'entity_type and entity_id required' });
+    const { rows } = await db.query(
+      `SELECT * FROM activities WHERE company_id=$1 AND entity_type=$2 AND entity_id=$3
+       ORDER BY created_at DESC`,
+      [req.user.company_id, entity_type, parseInt(entity_id)]
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/activities/by-customer?name=X
+// Returns all activities across all containers (and matching prospect) for a customer
+app.get('/api/activities/by-customer', authRequired, async (req, res) => {
+  try {
+    const cid = req.user.company_id;
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ error: 'name required' });
+
+    // Get all container IDs for this customer (active + history)
+    const { rows: cRows } = await db.query(
+      `SELECT id FROM containers WHERE company_id=$1 AND customer_name=$2`, [cid, name]
+    );
+    const { rows: hRows } = await db.query(
+      `SELECT id FROM rental_history WHERE company_id=$1 AND customer_name=$2`, [cid, name]
+    );
+    const containerIds = [...cRows, ...hRows].map(r => r.id);
+
+    // Get any prospect linked to this customer name
+    const { rows: pRows } = await db.query(
+      `SELECT id FROM prospects WHERE company_id=$1 AND name=$2`, [cid, name]
+    );
+    const prospectIds = pRows.map(r => r.id);
+
+    if (!containerIds.length && !prospectIds.length) return res.json([]);
+
+    const params = [cid];
+    const conds = [];
+    if (containerIds.length) {
+      params.push(containerIds);
+      conds.push(`(entity_type='container' AND entity_id=ANY($${params.length}))`);
+    }
+    if (prospectIds.length) {
+      params.push(prospectIds);
+      conds.push(`(entity_type='prospect' AND entity_id=ANY($${params.length}))`);
+    }
+    const { rows } = await db.query(
+      `SELECT * FROM activities WHERE company_id=$1 AND (${conds.join(' OR ')})
+       ORDER BY created_at DESC`,
+      params
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/activities
+app.post('/api/activities', authRequired, async (req, res) => {
+  try {
+    const { entity_type, entity_id, activity_type, content } = req.body || {};
+    if (!entity_type || !entity_id) return res.status(400).json({ error: 'entity_type and entity_id required' });
+    if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
+    const { rows } = await db.query(
+      `INSERT INTO activities (company_id,entity_type,entity_id,activity_type,content,created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.user.company_id, entity_type, parseInt(entity_id),
+       activity_type || 'Note', content.trim(), req.user.username]
+    );
+    res.status(201).json(rows[0]);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/activities/:id
+app.delete('/api/activities/:id', authRequired, async (req, res) => {
+  try {
+    await db.query(
+      `DELETE FROM activities WHERE id=$1 AND company_id=$2`,
+      [req.params.id, req.user.company_id]
+    );
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Prospect Emails ───────────────────────────────────────────────────────────
 
 // GET  /api/prospects/:id/emails  — list all emails sent to this prospect
@@ -1216,6 +1339,11 @@ app.post('/api/prospects/:id/email', authRequired, async (req, res) => {
     if (!emailSent && resendClient) {
       return res.status(500).json({ error: sendError, logged: logRows[0] });
     }
+    // Auto-log email sent in activity feed
+    if (emailSent) {
+      await logActivity(cid, 'prospect', parseInt(req.params.id), 'Email Sent',
+        `Email sent to ${prospect.email}: "${subject.trim()}"`, req.user.username);
+    }
     res.status(201).json({
       success: true,
       sent: emailSent,
@@ -1279,6 +1407,10 @@ app.post('/api/payments', authRequired, async (req, res) => {
         `UPDATE containers SET payment_status='Paid' WHERE id=$1 AND company_id=$2`,
         [container_id, cid]
       );
+      // Auto-log payment activity
+      await logActivity(cid, 'container', parseInt(container_id), 'Payment Received',
+        `£${parseFloat(amount).toFixed(2)} received via ${method || 'Bank Transfer'}${notes ? ' — ' + notes : ''}`,
+        req.user.username);
     }
     res.status(201).json({ ...rows[0], amount: parseFloat(rows[0].amount) });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1362,6 +1494,10 @@ app.post('/api/containers/:id/email', authRequired, async (req, res) => {
       );
     } catch (logErr) { console.warn('Email log failed:', logErr.message); }
 
+    // Auto-log in activity feed
+    await logActivity(cid, 'container', parseInt(req.params.id), 'Email Sent',
+      `"${subject}" sent to ${container.email}`, req.user.username);
+
     res.json({ success: true, to: container.email, subject });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1376,4 +1512,3 @@ initDb()
     console.log(`   Demo login: admin / admin123\n`);
   }))
   .catch(err => { console.error('DB init failed:', err.message); process.exit(1); });
-
