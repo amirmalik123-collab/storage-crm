@@ -760,6 +760,7 @@ function ActivityFeed({fetchUrl, postEntityType, postEntityId, compact=false}){
 }
 
 // ── Prospect modal ────────────────────────────────────────────────────────────
+function ProspectModal({prospect,onClose,onSaved}){
   const{showToast}=useApp();
   const opts=window.getCRMOptions();
   const sources=(opts.lead_sources||[]).filter(Boolean);
@@ -2984,3 +2985,4 @@ ReactDOM.render(React.createElement(App),document.getElementById('root'));
 </script>
 </body>
 </html>
+
